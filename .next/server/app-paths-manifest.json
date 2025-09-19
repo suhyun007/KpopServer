@@ -1,1 +1,3 @@
-{}
+{
+  "/api/popular/route": "app/api/popular/route.js"
+}

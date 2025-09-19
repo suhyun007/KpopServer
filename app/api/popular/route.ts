@@ -7,7 +7,6 @@ export async function GET() {
     const { data: artists, error } = await supabaseAdmin
       .from('artists')
       .select('*')
-      .eq('is_active', true)
       .order('rank')
       .limit(10);
 
