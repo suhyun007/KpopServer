@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '../../../lib/supabase';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET() {
   try {
     // 인기 그룹 TOP 10 조회
-    const { data: artists, error } = await supabase
+    const { data: artists, error } = await supabaseAdmin
       .from('artists')
       .select('*')
       .eq('is_active', true)
