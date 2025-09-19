@@ -1,8 +1,8 @@
-// File: /Users/admin/Projects/KpopCall/KpopServer/app/api/popular/route.ts
-import * as entry from '../../../../../app/api/popular/route.js'
+// File: /Users/admin/Projects/KpopCall/KpopServer/src/app/api/popular/route.ts
+import * as entry from '../../../../../src/app/api/popular/route.js'
 import type { NextRequest } from 'next/server.js'
 
-type TEntry = typeof import('../../../../../app/api/popular/route.js')
+type TEntry = typeof import('../../../../../src/app/api/popular/route.js')
 
 type SegmentParams<T extends Object = any> = T extends Record<string, any>
   ? { [K in keyof T]: T[K] extends string ? string | string[] | undefined : never }
