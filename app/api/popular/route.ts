@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../../../lib/supabase';
 
 export async function GET() {
   try {
@@ -7,6 +7,7 @@ export async function GET() {
     const { data: artists, error } = await supabase
       .from('artists')
       .select('*')
+      .eq('is_active', true)
       .order('rank')
       .limit(10);
 
