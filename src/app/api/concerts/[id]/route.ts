@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 // GET /api/concerts/[id]
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { data, error } = await supabaseAdmin
       .from('concerts')
       .select(`
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           agency
         )
       `)
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (error) {
@@ -30,13 +31,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // PUT /api/concerts/[id]
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const body = await req.json();
     const { data, error } = await supabaseAdmin
       .from('concerts')
       .update(body)
-      .eq('id', params.id)
+      .eq('id', id)
       .select('*')
       .single();
 
@@ -51,12 +53,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // DELETE /api/concerts/[id]
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { error } = await supabaseAdmin
       .from('concerts')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
