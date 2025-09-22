@@ -1,3 +1,6 @@
 {
+  "/api/artists/route": "app/api/artists/route.js",
+  "/api/concerts/[id]/route": "app/api/concerts/[id]/route.js",
+  "/api/concerts/route": "app/api/concerts/route.js",
   "/api/popular/route": "app/api/popular/route.js"
 }
