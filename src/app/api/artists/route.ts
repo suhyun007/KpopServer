@@ -5,61 +5,9 @@ import { supabaseAdmin } from '@/lib/supabase';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-    const name = searchParams.get('name');
-    const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '15');
-
-    // ID로 특정 아티스트 조회
-    if (id) {
-      const { data, error } = await supabaseAdmin
-        .from('artists')
-        .select(`
-          *,
-          artist_translations (
-            id,
-            lang,
-            description
-          )
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-      }
-
-      return NextResponse.json({ 
-        success: true, 
-        artists: data ? [data] : []
-      });
-    }
-
-    // 이름으로 특정 아티스트 조회
-    if (name) {
-      const { data, error } = await supabaseAdmin
-        .from('artists')
-        .select(`
-          *,
-          artist_translations (
-            id,
-            lang,
-            description
-          )
-        `)
-        .eq('artist_name_en', name)
-        .single();
-
-      if (error) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-      }
-
-      return NextResponse.json({ 
-        success: true, 
-        artists: data ? [data] : []
-      });
-    }
+    const offset = parseInt(searchParams.get('offset') || '0');
 
     // 전체 개수 조회
     const { count, error: countError } = await supabaseAdmin
@@ -71,7 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 페이징된 데이터 조회 (번역 정보 포함)
-    let query = supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('artists')
       .select(`
         *,
@@ -80,17 +28,9 @@ export async function GET(req: NextRequest) {
           lang,
           description
         )
-      `);
-
-    // 검색용 정렬 (artist_name_en) vs 일반 정렬 (rank)
-    if (search === 'true') {
-      query = query.order('artist_name_en', { ascending: true });
-    } else {
-      query = query.order('rank', { ascending: true });
-    }
-
-    const offset = (page - 1) * limit;
-    const { data, error } = await query.range(offset, offset + limit - 1);
+      `)
+      .order('rank', { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });

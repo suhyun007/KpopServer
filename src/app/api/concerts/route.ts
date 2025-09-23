@@ -5,8 +5,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const artistName = searchParams.get('artist');
     const artistId = searchParams.get('artist_id');
+    const artistName = searchParams.get('artist');
 
     let query = supabaseAdmin
       .from('concerts')
