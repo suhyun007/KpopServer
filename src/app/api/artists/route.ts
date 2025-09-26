@@ -5,9 +5,62 @@ import { supabaseAdmin } from '@/lib/supabase';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    const name = searchParams.get('name');
+    const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '15');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const offset = (page - 1) * limit;
+
+    // ID로 특정 아티스트 조회
+    if (id) {
+      const { data, error } = await supabaseAdmin
+        .from('artists')
+        .select(`
+          *,
+          artist_translations (
+            id,
+            lang,
+            description
+          )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        artists: [data] // 단일 아티스트를 배열로 감싸서 반환
+      });
+    }
+
+    // 이름으로 특정 아티스트 조회 (fallback용)
+    if (name) {
+      const { data, error } = await supabaseAdmin
+        .from('artists')
+        .select(`
+          *,
+          artist_translations (
+            id,
+            lang,
+            description
+          )
+        `)
+        .eq('artist_name_en', name)
+        .single();
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        artists: [data] // 단일 아티스트를 배열로 감싸서 반환
+      });
+    }
 
     // 전체 개수 조회
     const { count, error: countError } = await supabaseAdmin
@@ -19,7 +72,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 페이징된 데이터 조회 (번역 정보 포함)
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('artists')
       .select(`
         *,
@@ -28,9 +81,16 @@ export async function GET(req: NextRequest) {
           lang,
           description
         )
-      `)
-      .order('rank', { ascending: true })
-      .range(offset, offset + limit - 1);
+      `);
+
+    // 검색 모드일 때는 이름순 정렬, 아니면 순위순 정렬
+    if (search === 'true') {
+      query = query.order('artist_name_en', { ascending: true });
+    } else {
+      query = query.order('rank', { ascending: true });
+    }
+
+    const { data, error } = await query.range(offset, offset + limit - 1);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });

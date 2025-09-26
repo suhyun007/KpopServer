@@ -29,6 +29,7 @@ type Artist = {
   category?: "BOY_GROUP" | "GIRL_GROUP" | "SOLO" | "MC" | "ETC";
   agency?: string;
   fandom_name?: string;
+  instagram_id?: string;
   created_at?: string;
   updated_at?: string;
   artist_translations?: ArtistTranslation[];
@@ -80,6 +81,7 @@ export default function AdminPage() {
     category: "BOY_GROUP",
     agency: "",
     fandom_name: "",
+    instagram_id: "",
   });
   const [translations, setTranslations] = useState<{[key: string]: string}>({
     ko: "",
@@ -279,7 +281,7 @@ export default function AdminPage() {
       }
       
       alert(isUpdate ? "아티스트가 성공적으로 수정되었습니다!" : "아티스트가 성공적으로 등록되었습니다!");
-      setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "" });
+      setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "", instagram_id: "" });
       setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
       fetchArtists();
     } catch (e: any) {
@@ -349,6 +351,7 @@ export default function AdminPage() {
       category: artist.category || "BOY_GROUP",
       agency: artist.agency || "",
       fandom_name: artist.fandom_name || "",
+      instagram_id: artist.instagram_id || "",
       created_at: artist.created_at,
       updated_at: artist.updated_at,
     });
@@ -396,7 +399,7 @@ export default function AdminPage() {
   }
 
   function handleArtistNew() {
-    setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "" });
+    setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "", instagram_id: "" });
     setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
     setAvailableTranslations([]);
   }
@@ -719,6 +722,10 @@ export default function AdminPage() {
                   <div style={styles.field}>
                     <label style={styles.label}>팬덤명</label>
                     <input style={styles.input as any} value={artistForm.fandom_name || ""} onChange={(e) => setArtistForm({ ...artistForm, fandom_name: e.target.value })} />
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>인스타그램 ID</label>
+                    <input style={styles.input as any} value={artistForm.instagram_id || ""} onChange={(e) => setArtistForm({ ...artistForm, instagram_id: e.target.value })} placeholder="@username 또는 username" />
                   </div>
 
                   <div style={{ ...styles.field, gridColumn: "1 / -1" }}>
