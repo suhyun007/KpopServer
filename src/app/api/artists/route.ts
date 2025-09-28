@@ -128,3 +128,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 });
   }
 }
+
+// PUT /api/artists?id=123
+export async function PUT(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'id parameter is required' 
+      }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const { data, error } = await supabaseAdmin
+      .from('artists')
+      .update(body)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, artist: data });
+  } catch (e) {
+    return NextResponse.json({ success: false, error: String(e) }, { status: 500 });
+  }
+}

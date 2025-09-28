@@ -13,16 +13,7 @@ export async function GET(req: NextRequest) {
     if (id) {
       const { data, error } = await supabaseAdmin
         .from('concerts')
-        .select(`
-          *,
-          artists (
-            id,
-            artist_name_en,
-            artist_name_kr,
-            fandom_name,
-            agency
-          )
-        `)
+        .select('*')
         .eq('id', id)
         .single();
 
@@ -35,22 +26,13 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('concerts')
-      .select(`
-        *,
-        artists (
-          id,
-          artist_name_en,
-          artist_name_kr,
-          fandom_name,
-          agency
-        )
-      `)
+      .select('*')
       .order('start_date', { ascending: true });
 
     if (artistId) {
       query = query.eq('artist_id', artistId);
     } else if (artistName) {
-      query = query.eq('artists.artist_name_en', artistName);
+      query = query.eq('artist_name_en', artistName);
     }
 
     const { data, error } = await query;
@@ -103,16 +85,7 @@ export async function PUT(req: NextRequest) {
       .from('concerts')
       .update(body)
       .eq('id', id)
-      .select(`
-        *,
-        artists (
-          id,
-          artist_name_en,
-          artist_name_kr,
-          fandom_name,
-          agency
-        )
-      `)
+      .select('*')
       .single();
 
     if (error) {
