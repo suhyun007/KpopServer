@@ -105,7 +105,6 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       if (activeTab === 'concerts') {
         fetchConcerts();
-        fetchAllArtists(); // 콘서트 폼에서 아티스트 선택을 위해 모든 아티스트 목록 로드
       } else {
         fetchArtists();
       }
@@ -150,14 +149,6 @@ export default function AdminPage() {
     setConcertError(null);
     try {
       const isUpdate = concertForm.id;
-      
-      // 신규 등록 시 아티스트 선택 필수 검증
-      if (!isUpdate && !concertForm.artist_id) {
-        setConcertError("아티스트를 선택해주세요.");
-        setConcertLoading(false);
-        return;
-      }
-      
       const url = isUpdate ? `/api/concerts?id=${concertForm.id}` : "/api/concerts";
       const method = isUpdate ? "PUT" : "POST";
       
@@ -210,18 +201,6 @@ export default function AdminPage() {
       setCurrentPage(page);
     } catch (e: any) {
       setArtistError(e.message);
-    }
-  }
-
-  // 모든 아티스트를 가져오는 함수 (콘서트 폼용)
-  async function fetchAllArtists() {
-    try {
-      const res = await fetch(`/api/artists?limit=1000`); // 충분히 큰 수로 모든 아티스트 가져오기
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Failed");
-      setArtists(json.artists || []);
-    } catch (e: any) {
-      console.error('Error fetching all artists:', e);
     }
   }
 
@@ -583,36 +562,12 @@ export default function AdminPage() {
               <form onSubmit={handleConcertSubmit}>
                 <div style={styles.formGrid}>
                   <div style={styles.field}>
-                    <label style={styles.label}>Artist</label>
-                    <select 
-                      style={styles.select as any} 
-                      value={concertForm.artist_id || ""} 
-                      onChange={(e) => {
-                        const selectedArtist = artists.find(artist => artist.id === parseInt(e.target.value));
-                        setConcertForm({ 
-                          ...concertForm, 
-                          artist_id: e.target.value ? parseInt(e.target.value) : undefined,
-                          artist_name_en: selectedArtist?.artist_name_en || "",
-                          artist_name_kr: selectedArtist?.artist_name_kr || ""
-                        });
-                      }}
-                      required
-                    >
-                      <option value="">아티스트를 선택하세요</option>
-                      {artists.map(artist => (
-                        <option key={artist.id} value={artist.id}>
-                          {artist.artist_name_en} {artist.artist_name_kr && `(${artist.artist_name_kr})`}
-                        </option>
-                      ))}
-                    </select>
+                    <label style={styles.label}>Artist EN</label>
+                    <input style={styles.input as any} value={concertForm.artist_name_en} onChange={(e) => setConcertForm({ ...concertForm, artist_name_en: e.target.value })} required />
                   </div>
                   <div style={styles.field}>
-                    <label style={styles.label}>Artist EN (자동입력)</label>
-                    <input style={styles.input as any} value={concertForm.artist_name_en} readOnly />
-                  </div>
-                  <div style={styles.field}>
-                    <label style={styles.label}>Artist KR (자동입력)</label>
-                    <input style={styles.input as any} value={concertForm.artist_name_kr} readOnly />
+                    <label style={styles.label}>Artist KR</label>
+                    <input style={styles.input as any} value={concertForm.artist_name_kr} onChange={(e) => setConcertForm({ ...concertForm, artist_name_kr: e.target.value })} />
                   </div>
 
                   <div style={styles.field}>
