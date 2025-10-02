@@ -11,6 +11,8 @@ export async function GET(req: NextRequest) {
     const artistName = searchParams.get('artist');
     const timezone = searchParams.get('timezone');
     const showAll = searchParams.get('show_all'); // 관리자용 파라미터
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '15');
 
     // 특정 콘서트 ID로 조회
     if (id) {
@@ -112,6 +114,35 @@ export async function GET(req: NextRequest) {
       query = query.eq('artist_name_en', artistName);
     }
 
+    let totalCount = 0;
+
+    // 관리자 요청이고 페이징 파라미터가 있을 때만 페이징 적용
+    if (showAll && (page > 0 || limit > 0)) {
+      // 먼저 총 개수만 조회
+      const countQuery = supabaseAdmin
+        .from('concerts')
+        .select('*', { count: 'exact', head: true });
+
+      // 아티스트 필터 적용
+      if (artistId) {
+        countQuery.eq('artist_id', artistId);
+      } else if (artistName) {
+        countQuery.eq('artist_name_en', artistName);
+      }
+
+      const { count, error: countError } = await countQuery;
+      
+      if (countError) {
+        return NextResponse.json({ success: false, error: countError.message }, { status: 500 });
+      }
+
+      totalCount = count || 0;
+
+      // 페이징 적용
+      const offset = (page - 1) * limit;
+      query = query.range(offset, offset + limit - 1);
+    }
+
     const { data, error } = await query;
 
     if (error) {
@@ -134,6 +165,21 @@ export async function GET(req: NextRequest) {
       }
       return concert;
     });
+
+    // 관리자 요청이면 페이징 정보 포함
+    if (showAll && (page > 0 || limit > 0)) {
+      const totalPages = Math.ceil(totalCount / limit);
+      return NextResponse.json({ 
+        success: true, 
+        concerts: concertsWithLocalTime,
+        pagination: {
+          current_page: page,
+          total_pages: totalPages,
+          total: totalCount,
+          limit: limit
+        }
+      });
+    }
 
     return NextResponse.json({ success: true, concerts: concertsWithLocalTime });
   } catch (e) {

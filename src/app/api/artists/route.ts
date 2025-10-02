@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
         artists: data ?? []
       });
     } else {
-      query = query.order('rank', { ascending: true });
+      query = query.order('rank', { ascending: true }); // 순위 오름차순 (1위가 먼저)
     }
 
     const { data, error } = await query.range(offset, offset + limit - 1);

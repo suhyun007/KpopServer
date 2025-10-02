@@ -12,7 +12,7 @@ type Concert = {
   start_time?: string; // 시간 (HH:MM)
   end_time?: string; // 시간 (HH:MM)
   timezone?: string; // 타임존 (예: "Asia/Seoul", "America/Los_Angeles")
-  concert_type: "CONCERT" | "FANMEETING" | "TOUR" | "SHOWCASE" | "SCHEDULE" | "ETC";
+  concert_type: "CONCERT" | "FANMEETING" | "TOUR" | "SHOWCASE" | "SCHEDULE" | "ALBUM" | "GOODS" | "ETC";
   venue_name_en?: string;
   venue_name_kr?: string;
   city?: string;
@@ -20,6 +20,9 @@ type Concert = {
   ticket_price?: string;
   description?: string;
   memo?: string;
+  push_status?: "draft" | "pending" | "sent";
+  push_sent?: boolean;
+  push_sent_at?: string;
 };
 
 type Artist = {
@@ -55,6 +58,11 @@ export default function AdminPage() {
 
   // 콘서트 관련 상태
   const [concerts, setConcerts] = useState<Concert[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalConcerts, setTotalConcerts] = useState(0);
+  const [concertsLoading, setConcertsLoading] = useState(false);
+  const [concertSearchTerm, setConcertSearchTerm] = useState("");
   const [concertForm, setConcertForm] = useState<Concert>({
     artist_id: undefined,
     artist_name_en: "",
@@ -72,6 +80,7 @@ export default function AdminPage() {
     ticket_price: "",
     description: "",
     memo: "",
+    push_status: "draft",
   });
   const [concertLoading, setConcertLoading] = useState(false);
   const [concertError, setConcertError] = useState<string | null>(null);
@@ -104,9 +113,10 @@ export default function AdminPage() {
   const [availableTranslations, setAvailableTranslations] = useState<ArtistTranslation[]>([]);
   const [artistLoading, setArtistLoading] = useState(false);
   const [artistError, setArtistError] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  // 아티스트 페이징 관련 상태
+  const [artistCurrentPage, setArtistCurrentPage] = useState(1);
   const [totalArtists, setTotalArtists] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
+  const [artistTotalPages, setArtistTotalPages] = useState(0);
   const itemsPerPage = 15;
 
   useEffect(() => {
@@ -117,12 +127,21 @@ export default function AdminPage() {
       // 콘서트 탭에서도 아티스트 데이터를 가져와야 셀렉트 박스에 표시됨
       fetchAllArtists(); // 모든 아티스트 조회
       if (activeTab === 'concerts') {
-        fetchConcerts();
+        fetchConcerts(1); // 첫 페이지부터 시작
       } else {
         fetchArtists(); // 아티스트 탭에서는 페이징된 데이터
       }
     }
   }, [activeTab]);
+
+  // 콘서트 검색 시 모든 데이터 로드
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'concerts' && concertSearchTerm) {
+      fetchAllConcerts();
+    } else if (isAuthenticated && activeTab === 'concerts' && !concertSearchTerm) {
+      fetchConcerts(1);
+    }
+  }, [concertSearchTerm, isAuthenticated, activeTab]);
 
   const handleLogin = async () => {
     try {
@@ -152,10 +171,41 @@ export default function AdminPage() {
   };
 
   // 콘서트 관련 함수들
-  async function fetchConcerts() {
-    const res = await fetch("/api/concerts?show_all=true"); // 관리자용: 모든 콘서트 조회
-    const json = await res.json();
-    if (json.success) setConcerts(json.concerts);
+  async function fetchConcerts(page: number = 1) {
+    setConcertsLoading(true);
+    try {
+      const res = await fetch(`/api/concerts?show_all=true&page=${page}&limit=15`); // 관리자용: 페이징 지원
+      const json = await res.json();
+      if (json.success) {
+        setConcerts(json.concerts);
+        setCurrentPage(json.pagination?.current_page || page);
+        setTotalPages(json.pagination?.total_pages || 1);
+        setTotalConcerts(json.pagination?.total || json.concerts.length);
+      }
+    } catch (error) {
+      console.error("Failed to fetch concerts:", error);
+    } finally {
+      setConcertsLoading(false);
+    }
+  }
+
+  // 모든 콘서트 데이터 가져오기 (검색용)
+  async function fetchAllConcerts() {
+    setConcertsLoading(true);
+    try {
+      const res = await fetch(`/api/concerts?show_all=true&limit=1000`); // 모든 콘서트 가져오기
+      const json = await res.json();
+      if (json.success) {
+        setConcerts(json.concerts);
+        setCurrentPage(1);
+        setTotalPages(1);
+        setTotalConcerts(json.concerts.length);
+      }
+    } catch (error) {
+      console.error("Failed to fetch all concerts:", error);
+    } finally {
+      setConcertsLoading(false);
+    }
   }
 
   // 콘서트용 아티스트 조회 (모든 아티스트)
@@ -240,7 +290,9 @@ export default function AdminPage() {
           } else {
             return new Date(concertForm.end_date + 'T00:00:00').toISOString();
           }
-        })() : undefined
+        })() : undefined,
+        // 콘서트 생성/수정 시 푸시 알림 상태를 'draft'로 설정 (푸시 전송 안함)
+        push_status: 'draft'
       };
       
       // start_time, end_time 필드는 제거 (DB에 저장하지 않음)
@@ -255,8 +307,8 @@ export default function AdminPage() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
       alert(isUpdate ? "콘서트가 성공적으로 수정되었습니다!" : "콘서트가 성공적으로 등록되었습니다!");
-      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
-      fetchConcerts();
+      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft" });
+      fetchConcerts(currentPage);
     } catch (e: any) {
       setConcertError(e.message);
     } finally {
@@ -268,8 +320,55 @@ export default function AdminPage() {
     if (!id) return;
     const ok = window.confirm("삭제하시겠습니까?");
     if (!ok) return;
-    await fetch(`/api/concerts/${id}`, { method: "DELETE" });
-    fetchConcerts();
+    
+    try {
+      const response = await fetch(`/api/concerts?id=${id}`, { method: "DELETE" });
+      const result = await response.json();
+      
+      if (result.success) {
+        alert("콘서트가 성공적으로 삭제되었습니다!");
+        fetchConcerts(currentPage);
+      } else {
+        alert(`삭제 실패: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("삭제 중 오류가 발생했습니다.");
+    }
+  }
+
+  async function handlePushStatusChange(concertId: number, newStatus: "draft" | "pending" | "sent") {
+    try {
+      const response = await fetch(`/api/concerts?id=${concertId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push_status: newStatus })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // 로컬 상태 업데이트
+        setConcerts(prev => 
+          prev.map(concert => 
+            concert.id === concertId 
+              ? { ...concert, push_status: newStatus }
+              : concert
+          )
+        );
+        
+        if (newStatus === 'pending') {
+          alert("푸시 알림이 대기 상태로 설정되었습니다. 5분 이내에 전송됩니다.");
+        } else if (newStatus === 'draft') {
+          alert("푸시 알림이 초안 상태로 설정되었습니다.");
+        }
+      } else {
+        alert(`푸시 상태 변경 실패: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("Push status change error:", error);
+      alert("푸시 상태 변경 중 오류가 발생했습니다.");
+    }
   }
 
   function handleConcertEdit(concert: Concert) {
@@ -301,13 +400,14 @@ export default function AdminPage() {
       country: concert.country || '',
       ticket_price: concert.ticket_price || '',
       description: concert.description || '',
-      memo: concert.memo || ''
+      memo: concert.memo || '',
+      push_status: concert.push_status || 'draft'
     };
     setConcertForm(processedConcert);
   }
 
   function handleConcertNew() {
-    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
+    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft" });
   }
 
   // 아티스트 관련 함수들
@@ -319,8 +419,8 @@ export default function AdminPage() {
       if (!json.success) throw new Error(json.error || "Failed");
       setArtists(json.artists || []);
       setTotalArtists(json.total || 0);
-      setTotalPages(json.totalPages || 0);
-      setCurrentPage(page);
+      setArtistTotalPages(json.totalPages || 0);
+      setArtistCurrentPage(page);
     } catch (e: any) {
       setArtistError(e.message);
     }
@@ -619,6 +719,8 @@ export default function AdminPage() {
       case "TOUR": return "#2196F3";
       case "SHOWCASE": return "#FF9800";
       case "SCHEDULE": return "#607D8B";
+      case "ALBUM": return "#E91E63";
+      case "GOODS": return "#FF5722";
       default: return "#7f8c8d";
     }
   }
@@ -776,6 +878,7 @@ export default function AdminPage() {
                         <option value="America/Chicago">America/Chicago (미국 중부)</option>
                         <option value="America/Denver">America/Denver (미국 산지)</option>
                         <option value="America/Los_Angeles">America/Los_Angeles (미국 서부)</option>
+                        <option value="America/Phoenix">America/Phoenix (미국 남부/애리조나)</option>
                         <option value="America/Anchorage">America/Anchorage (알래스카)</option>
                         <option value="Pacific/Honolulu">Pacific/Honolulu (하와이)</option>
                         <option value="America/Toronto">America/Toronto (캐나다 동부)</option>
@@ -818,6 +921,7 @@ export default function AdminPage() {
                       <option value="TOUR">TOUR</option>
                       <option value="SHOWCASE">SHOWCASE</option>
                       <option value="SCHEDULE">SCHEDULE</option>
+                      <option value="ALBUM">ALBUM</option>
                       <option value="ETC">ETC</option>
                       <option value="GOODS">GOODS</option>
                     </select>
@@ -949,6 +1053,18 @@ export default function AdminPage() {
 
             <div style={styles.card}>
               <h2 style={styles.sectionTitle}>콘서트 목록</h2>
+              
+              {/* 콘서트 검색 */}
+              <div style={styles.field}>
+                <label style={styles.label}>아티스트 검색</label>
+                <input 
+                  style={styles.input as any} 
+                  value={concertSearchTerm} 
+                  onChange={(e) => setConcertSearchTerm(e.target.value)} 
+                  placeholder="아티스트 영문명 또는 한글명으로 검색..."
+                />
+              </div>
+              
               <div style={styles.tableWrap}>
                 <table style={styles.table as any}>
                   <thead>
@@ -957,17 +1073,42 @@ export default function AdminPage() {
                       <th style={styles.th as any}>Artist</th>
                       <th style={styles.th as any}>Type</th>
                       <th style={styles.th as any}>Location</th>
+                      <th style={styles.th as any}>Push</th>
                       <th style={styles.th as any}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {concerts.length === 0 && (
+                    {concertsLoading ? (
                       <tr>
-                        <td colSpan={5} style={styles.empty as any}>등록된 콘서트가 없습니다.</td>
+                        <td colSpan={6} style={styles.empty as any}>로딩 중...</td>
                       </tr>
-                    )}
-                    {concerts.map((c) => (
-                      <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => handleConcertEdit(c)}>
+                    ) : concerts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={styles.empty as any}>등록된 콘서트가 없습니다.</td>
+                      </tr>
+                    ) : concerts.filter((c) => {
+                      if (!concertSearchTerm) return true;
+                      const searchLower = concertSearchTerm.toLowerCase();
+                      return (
+                        c.artist_name_en.toLowerCase().includes(searchLower) ||
+                        (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
+                      );
+                    }).length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={styles.empty as any}>검색 결과가 없습니다.</td>
+                      </tr>
+                    ) : (
+                      concerts
+                        .filter((c) => {
+                          if (!concertSearchTerm) return true;
+                          const searchLower = concertSearchTerm.toLowerCase();
+                          return (
+                            c.artist_name_en.toLowerCase().includes(searchLower) ||
+                            (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
+                          );
+                        })
+                        .map((c) => (
+                      <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => c.id && handleConcertEdit(c)}>
                         <td style={styles.td as any}>{
                           (() => {
                             // ISO 형식에서 날짜 부분만 추출
@@ -983,13 +1124,115 @@ export default function AdminPage() {
                         <td style={styles.td as any}><span style={styles.badge(typeColor(c.concert_type))}>{c.concert_type}</span></td>
                         <td style={styles.td as any}>{[c.city, c.country].filter(Boolean).join(", ")}{c.memo ? ` / ${c.memo}` : ""}</td>
                         <td style={{...styles.td, textAlign: 'center'} as any}>
-                          <button style={styles.dangerBtn as any} onClick={(e) => { e.stopPropagation(); handleConcertDelete(c.id); }}>del</button>
+                          <select 
+                            value={c.push_status || 'draft'} 
+                            onChange={(e) => c.id && handlePushStatusChange(c.id, e.target.value as "draft" | "pending" | "sent")}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #ddd',
+                              fontSize: '12px',
+                              backgroundColor: c.push_status === 'sent' ? '#e8f5e8' : c.push_status === 'pending' ? '#fff3cd' : '#f8f9fa'
+                            }}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="pending">Pending</option>
+                            <option value="sent">Sent</option>
+                          </select>
+                        </td>
+                        <td style={{...styles.td, textAlign: 'center'} as any}>
+                          <button style={styles.dangerBtn as any} onClick={(e) => { e.stopPropagation(); c.id && handleConcertDelete(c.id); }}>del</button>
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
+              
+              {/* 페이징 컴포넌트 */}
+              {totalConcerts > 0 && !concertSearchTerm && (
+                <div style={styles.pagination}>
+                  <button 
+                    style={styles.pageBtn as any}
+                    onClick={() => fetchConcerts(currentPage - 1)}
+                    disabled={currentPage === 1 || concertsLoading || totalPages <= 1}
+                  >
+                    이전
+                  </button>
+                  
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
+                    if (pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        style={{
+                          ...styles.pageBtn,
+                          ...(pageNum === currentPage ? styles.pageBtnActive : {})
+                        } as any}
+                        onClick={() => fetchConcerts(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                  
+                  <button 
+                    style={styles.pageBtn as any}
+                    onClick={() => fetchConcerts(currentPage + 1)}
+                    disabled={currentPage === totalPages || concertsLoading || totalPages <= 1}
+                  >
+                    다음
+                  </button>
+                  
+                  <span style={styles.pageInfo}>
+                    {currentPage} / {totalPages} 페이지 (총 {totalConcerts}개
+                    {concertSearchTerm && (
+                      <span style={{ color: '#D4AF37' }}>
+                        {' '}- 검색 결과: {concerts.filter((c) => {
+                          const searchLower = concertSearchTerm.toLowerCase();
+                          return (
+                            c.artist_name_en.toLowerCase().includes(searchLower) ||
+                            (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
+                          );
+                        }).length}개
+                      </span>
+                    )}
+                    )
+                  </span>
+                </div>
+              )}
+              
+              {/* 검색 결과 정보 */}
+              {concertSearchTerm && totalConcerts > 0 && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: '20px',
+                  padding: '12px',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  color: '#666'
+                }}>
+                  <span>
+                    <strong style={{ color: '#D4AF37' }}>"{concertSearchTerm}"</strong> 검색 결과: 
+                    <strong style={{ color: '#D4AF37', marginLeft: '8px' }}>
+                      {concerts.filter((c) => {
+                        const searchLower = concertSearchTerm.toLowerCase();
+                        return (
+                          c.artist_name_en.toLowerCase().includes(searchLower) ||
+                          (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
+                        );
+                      }).length}개
+                    </strong>
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1159,6 +1402,7 @@ export default function AdminPage() {
                           (a.artist_name_kr && a.artist_name_kr.includes(artistSearchTerm))
                         );
                       })
+                      .sort((a, b) => a.rank - b.rank) // 순위 오름차순 정렬 (1위부터)
                       .map((a, index) => (
                       <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleArtistEdit(a)}>
                         <td style={styles.td as any}>
@@ -1204,26 +1448,26 @@ export default function AdminPage() {
               </div>
               
               {/* 페이징 UI */}
-              {totalPages > 1 && (
+              {artistTotalPages > 1 && (
                 <div style={styles.pagination}>
                   <button 
                     style={styles.pageBtn as any}
-                    onClick={() => fetchArtists(currentPage - 1)}
-                    disabled={currentPage === 1}
+                    onClick={() => fetchArtists(artistCurrentPage - 1)}
+                    disabled={artistCurrentPage === 1}
                   >
                     이전
                   </button>
                   
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
-                    if (pageNum > totalPages) return null;
+                  {Array.from({ length: Math.min(5, artistTotalPages) }, (_, i) => {
+                    const pageNum = Math.max(1, Math.min(artistTotalPages - 4, artistCurrentPage - 2)) + i;
+                    if (pageNum > artistTotalPages) return null;
                     
                     return (
                       <button
                         key={pageNum}
                         style={{
                           ...styles.pageBtn,
-                          ...(pageNum === currentPage ? styles.pageBtnActive : {})
+                          ...(pageNum === artistCurrentPage ? styles.pageBtnActive : {})
                         } as any}
                         onClick={() => fetchArtists(pageNum)}
                       >
@@ -1234,14 +1478,14 @@ export default function AdminPage() {
                   
                   <button 
                     style={styles.pageBtn as any}
-                    onClick={() => fetchArtists(currentPage + 1)}
-                    disabled={currentPage === totalPages}
+                    onClick={() => fetchArtists(artistCurrentPage + 1)}
+                    disabled={artistCurrentPage === artistTotalPages}
                   >
                     다음
                   </button>
                   
                   <span style={styles.pageInfo}>
-                    {currentPage} / {totalPages} 페이지 (총 {totalArtists}개)
+                    {artistCurrentPage} / {artistTotalPages} 페이지 (총 {totalArtists}개)
                   </span>
                 </div>
               )}
