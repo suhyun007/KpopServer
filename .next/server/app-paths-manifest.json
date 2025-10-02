@@ -1,4 +1,5 @@
 {
+  "/_not-found/page": "app/_not-found/page.js",
   "/admin/007000/page": "app/admin/007000/page.js",
   "/api/artists/route": "app/api/artists/route.js",
   "/api/concerts/route": "app/api/concerts/route.js",
