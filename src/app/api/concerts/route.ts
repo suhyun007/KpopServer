@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { DateTime } from 'luxon';
 
 // GET /api/concerts
 export async function GET(req: NextRequest) {
@@ -8,6 +9,8 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get('id');
     const artistId = searchParams.get('artist_id');
     const artistName = searchParams.get('artist');
+    const timezone = searchParams.get('timezone');
+    const showAll = searchParams.get('show_all'); // 관리자용 파라미터
 
     // 특정 콘서트 ID로 조회
     if (id) {
@@ -26,8 +29,82 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('concerts')
-      .select('*')
-      .order('start_date', { ascending: true });
+      .select('*');
+
+    // 관리자 요청이 아니고 timezone이 있을 때만 필터링 적용
+    if (!showAll && timezone) {
+      try {
+        // timezone 변환 (약어 -> 표준 형식)
+        let targetTimezone = timezone;
+        if (timezone === 'KST' || timezone === 'JST') {
+          targetTimezone = 'Asia/Seoul';
+        } else if (timezone === 'PST' || timezone === 'PDT') {
+          targetTimezone = 'America/Los_Angeles';
+        } else if (timezone === 'EST' || timezone === 'EDT') {
+          targetTimezone = 'America/New_York';
+        } else if (timezone === 'CST' || timezone === 'CDT') {
+          targetTimezone = 'America/Chicago';
+        } else if (timezone === 'MST' || timezone === 'MDT') {
+          targetTimezone = 'America/Denver';
+        } else if (timezone === 'GMT' || timezone === 'BST') {
+          targetTimezone = 'Europe/London';
+        } else if (timezone === 'CET' || timezone === 'CEST') {
+          targetTimezone = 'Europe/Paris';
+        } else if (timezone === 'JST') {
+          targetTimezone = 'Asia/Tokyo';
+        } else if (timezone === 'CST_CN' || timezone === 'CST_CHINA') {
+          targetTimezone = 'Asia/Shanghai';
+        } else if (timezone === 'IST') {
+          targetTimezone = 'Asia/Kolkata';
+        } else if (timezone === 'AEST' || timezone === 'AEDT') {
+          targetTimezone = 'Australia/Sydney';
+        } else if (timezone === 'NZST' || timezone === 'NZDT') {
+          targetTimezone = 'Pacific/Auckland';
+        } else if (timezone === 'HKT') {
+          targetTimezone = 'Asia/Hong_Kong';
+        } else if (timezone === 'SGT') {
+          targetTimezone = 'Asia/Singapore';
+        } else if (timezone === 'BKK' || timezone === 'ICT') {
+          targetTimezone = 'Asia/Bangkok';
+        } else if (timezone === 'WIB') {
+          targetTimezone = 'Asia/Jakarta';
+        } else if (timezone === 'PHT') {
+          targetTimezone = 'Asia/Manila';
+        } else if (timezone === 'MYT') {
+          targetTimezone = 'Asia/Kuala_Lumpur';
+        } else if (timezone === 'TST') {
+          targetTimezone = 'Asia/Taipei';
+        } else if (timezone === 'MOP') {
+          targetTimezone = 'Asia/Macau';
+        } else if (timezone === 'GST') {
+          targetTimezone = 'Asia/Dubai';
+        } else if (timezone === 'MSK') {
+          targetTimezone = 'Europe/Moscow';
+        } else if (timezone === 'CET') {
+          targetTimezone = 'Europe/Berlin';
+        } else if (timezone === 'EET' || timezone === 'EEST') {
+          targetTimezone = 'Europe/Athens';
+        } else if (timezone === 'UTC') {
+          targetTimezone = 'UTC';
+        }
+        
+        // 현재 시간 + 오늘 00:00 현지 시간
+        const now = DateTime.now().setZone(targetTimezone);
+        const todayStart = now.startOf('day');
+        
+        // UTC로 변환
+        const utcTodayStart = todayStart.toUTC().toISO();
+        
+        query = query.gte('start_date', utcTodayStart);
+      } catch (e) {
+        // timezone 파싱 실패 시 UTC 기준으로 fallback
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        query = query.gte('start_date', today.toISOString());
+      }
+    }
+
+    query = query.order('start_date', { ascending: true });
 
     if (artistId) {
       query = query.eq('artist_id', artistId);
@@ -41,7 +118,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, concerts: data ?? [] });
+    // 필요 시 현지 시간 변환 후 반환
+    const concertsWithLocalTime = (data ?? []).map((concert: any) => {
+      if (concert.timezone && concert.start_date) {
+        try {
+          const localTime = DateTime.fromISO(concert.start_date).setZone(concert.timezone);
+          return { 
+            ...concert, 
+            local_start_date: localTime.toISO(),
+            local_start_date_formatted: localTime.toFormat('yyyy-MM-dd HH:mm')
+          };
+        } catch (e) {
+          return concert;
+        }
+      }
+      return concert;
+    });
+
+    return NextResponse.json({ success: true, concerts: concertsWithLocalTime });
   } catch (e) {
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 });
   }

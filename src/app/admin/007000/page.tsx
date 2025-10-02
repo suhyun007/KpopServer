@@ -9,6 +9,9 @@ type Concert = {
   artist_name_kr?: string;
   start_date: string; // ISO date
   end_date?: string; // ISO date
+  start_time?: string; // 시간 (HH:MM)
+  end_time?: string; // 시간 (HH:MM)
+  timezone?: string; // 타임존 (예: "Asia/Seoul", "America/Los_Angeles")
   concert_type: "CONCERT" | "FANMEETING" | "TOUR" | "SHOWCASE" | "SCHEDULE" | "ETC";
   venue_name_en?: string;
   venue_name_kr?: string;
@@ -26,7 +29,7 @@ type Artist = {
   rank: number;
   fan_count?: string | number;
   color_code?: string;
-  category?: "BOY_GROUP" | "GIRL_GROUP" | "SOLO" | "MC" | "ETC";
+  category?: "BOY_GROUP" | "GIRL_GROUP" | "COED_GROUP" | "SOLO" | "MC" | "ETC";
   agency?: string;
   fandom_name?: string;
   instagram_id?: string;
@@ -58,6 +61,9 @@ export default function AdminPage() {
     artist_name_kr: "",
     start_date: "",
     end_date: "",
+    start_time: "",
+    end_time: "",
+    timezone: "",
     concert_type: "CONCERT",
     venue_name_en: "",
     venue_name_kr: "",
@@ -70,8 +76,13 @@ export default function AdminPage() {
   const [concertLoading, setConcertLoading] = useState(false);
   const [concertError, setConcertError] = useState<string | null>(null);
 
+  // 스크래핑 데이터 관련 상태
+  const [scrapedConcerts, setScrapedConcerts] = useState<any[]>([]);
+  const [scrapedLoading, setScrapedLoading] = useState(false);
+
   // 아티스트 관련 상태
   const [artists, setArtists] = useState<Artist[]>([]);
+  const [artistSearchTerm, setArtistSearchTerm] = useState<string>("");
   const [artistForm, setArtistForm] = useState<Artist>({
     artist_name_en: "",
     artist_name_kr: "",
@@ -103,10 +114,12 @@ export default function AdminPage() {
     const authStatus = localStorage.getItem('admin_authenticated');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
+      // 콘서트 탭에서도 아티스트 데이터를 가져와야 셀렉트 박스에 표시됨
+      fetchAllArtists(); // 모든 아티스트 조회
       if (activeTab === 'concerts') {
         fetchConcerts();
       } else {
-        fetchArtists();
+        fetchArtists(); // 아티스트 탭에서는 페이징된 데이터
       }
     }
   }, [activeTab]);
@@ -117,10 +130,12 @@ export default function AdminPage() {
       if (password === 'adminowner') {
         setIsAuthenticated(true);
         localStorage.setItem('admin_authenticated', 'true');
+        // 콘서트 탭에서도 아티스트 데이터를 가져와야 셀렉트 박스에 표시됨
+        fetchAllArtists(); // 모든 아티스트 조회
         if (activeTab === 'concerts') {
           fetchConcerts();
         } else {
-          fetchArtists();
+          fetchArtists(); // 아티스트 탭에서는 페이징된 데이터
         }
       } else {
         alert('비밀번호가 올바르지 않습니다.');
@@ -138,10 +153,62 @@ export default function AdminPage() {
 
   // 콘서트 관련 함수들
   async function fetchConcerts() {
-    const res = await fetch("/api/concerts");
+    const res = await fetch("/api/concerts?show_all=true"); // 관리자용: 모든 콘서트 조회
     const json = await res.json();
     if (json.success) setConcerts(json.concerts);
   }
+
+  // 콘서트용 아티스트 조회 (모든 아티스트)
+  async function fetchAllArtists() {
+    try {
+      const res = await fetch("/api/artists?search=true"); // 이름순 정렬로 모든 아티스트 조회
+      const json = await res.json();
+      if (json.success) setArtists(json.artists || []);
+    } catch (e: any) {
+      console.error("Failed to fetch all artists:", e);
+    }
+  }
+
+  async function fetchScrapedConcerts() {
+    setScrapedLoading(true);
+    try {
+      const res = await fetch("/api/scraped-concerts");
+      const json = await res.json();
+      if (json.success) setScrapedConcerts(json.concerts);
+    } catch (error) {
+      console.error("Failed to fetch scraped concerts:", error);
+    } finally {
+      setScrapedLoading(false);
+    }
+  }
+
+  async function toggleProcessedStatus(id: number, currentStatus: boolean) {
+    try {
+      const res = await fetch(`/api/scraped-concerts?id=${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processed: !currentStatus })
+      });
+      
+      const json = await res.json();
+      if (json.success) {
+        // 로컬 상태 업데이트
+        setScrapedConcerts(prev => 
+          prev.map(concert => 
+            concert.id === id 
+              ? { ...concert, processed: !currentStatus }
+              : concert
+          )
+        );
+      } else {
+        alert(`처리 상태 변경 실패: ${json.error}`);
+      }
+    } catch (error) {
+      console.error("Failed to toggle processed status:", error);
+      alert("처리 상태 변경 중 오류가 발생했습니다.");
+    }
+  }
+
 
   async function handleConcertSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -152,18 +219,43 @@ export default function AdminPage() {
       const url = isUpdate ? `/api/concerts?id=${concertForm.id}` : "/api/concerts";
       const method = isUpdate ? "PUT" : "POST";
       
+      // 날짜와 시간을 조합해서 ISO 형식으로 변환
+      const processedForm = {
+        ...concertForm,
+        artist_id: concertForm.artist_id || undefined,
+        start_date: concertForm.start_date ? (() => {
+          if (concertForm.start_time) {
+            // 날짜 + 시간을 조합해서 ISO 형식으로 저장
+            const dateTimeString = `${concertForm.start_date}T${concertForm.start_time}:00`;
+            return new Date(dateTimeString).toISOString();
+          } else {
+            // 시간이 없으면 자정으로 설정
+            return new Date(concertForm.start_date + 'T00:00:00').toISOString();
+          }
+        })() : undefined,
+        end_date: concertForm.end_date ? (() => {
+          if (concertForm.end_time) {
+            const dateTimeString = `${concertForm.end_date}T${concertForm.end_time}:00`;
+            return new Date(dateTimeString).toISOString();
+          } else {
+            return new Date(concertForm.end_date + 'T00:00:00').toISOString();
+          }
+        })() : undefined
+      };
+      
+      // start_time, end_time 필드는 제거 (DB에 저장하지 않음)
+      delete processedForm.start_time;
+      delete processedForm.end_time;
+      
       const res = await fetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...concertForm,
-          artist_id: concertForm.artist_id || undefined
-        }),
+        body: JSON.stringify(processedForm),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
       alert(isUpdate ? "콘서트가 성공적으로 수정되었습니다!" : "콘서트가 성공적으로 등록되었습니다!");
-      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
+      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
       fetchConcerts();
     } catch (e: any) {
       setConcertError(e.message);
@@ -181,11 +273,41 @@ export default function AdminPage() {
   }
 
   function handleConcertEdit(concert: Concert) {
-    setConcertForm(concert);
+    // 필요한 필드만 추출해서 폼에 설정 (동적 필드 제외)
+    const processedConcert = {
+      id: concert.id,
+      artist_id: concert.artist_id,
+      artist_name_en: concert.artist_name_en || '',
+      artist_name_kr: concert.artist_name_kr || '',
+      start_date: concert.start_date ? concert.start_date.split('T')[0] : '',
+      end_date: concert.end_date ? concert.end_date.split('T')[0] : '',
+      start_time: concert.start_date ? (() => {
+        const dateTime = new Date(concert.start_date);
+        const hours = dateTime.getHours().toString().padStart(2, '0');
+        const minutes = dateTime.getMinutes().toString().padStart(2, '0');
+        return `${hours}:${minutes}`;
+      })() : '',
+      end_time: concert.end_date ? (() => {
+        const dateTime = new Date(concert.end_date);
+        const hours = dateTime.getHours().toString().padStart(2, '0');
+        const minutes = dateTime.getMinutes().toString().padStart(2, '0');
+        return `${hours}:${minutes}`;
+      })() : '',
+      timezone: concert.timezone || '',
+      concert_type: concert.concert_type || 'CONCERT',
+      venue_name_en: concert.venue_name_en || '',
+      venue_name_kr: concert.venue_name_kr || '',
+      city: concert.city || '',
+      country: concert.country || '',
+      ticket_price: concert.ticket_price || '',
+      description: concert.description || '',
+      memo: concert.memo || ''
+    };
+    setConcertForm(processedConcert);
   }
 
   function handleConcertNew() {
-    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
+    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "" });
   }
 
   // 아티스트 관련 함수들
@@ -275,7 +397,7 @@ export default function AdminPage() {
             )
           );
         } catch (e: any) {
-          console.error("Failed to save translation:", e.message);
+          console.error("Failed to save translation:", e);
           // 번역 저장 실패해도 아티스트 등록은 성공으로 처리
         }
       }
@@ -283,7 +405,8 @@ export default function AdminPage() {
       alert(isUpdate ? "아티스트가 성공적으로 수정되었습니다!" : "아티스트가 성공적으로 등록되었습니다!");
       setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "", instagram_id: "" });
       setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
-      fetchArtists();
+      fetchArtists(); // 아티스트 탭용 페이징 데이터
+      fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
     } catch (e: any) {
       setArtistError(e.message);
     } finally {
@@ -301,7 +424,7 @@ export default function AdminPage() {
       if (checkJson.success && checkJson.translations && checkJson.translations.length > 0) {
         // 기존 번역이 있으면 업데이트
         const existingTranslation = checkJson.translations[0];
-        res = await fetch(`/api/artist-translations/${existingTranslation.id}`, {
+        res = await fetch(`/api/artist-translations?id=${existingTranslation.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -321,10 +444,17 @@ export default function AdminPage() {
         });
       }
       
+      console.log("Response status:", res.status);
+      console.log("Response ok:", res.ok);
+      
       const json = await res.json();
+      console.log("Response JSON:", json);
+      
       if (!json.success) throw new Error(json.error || "Failed to save translation");
     } catch (e: any) {
-      console.error("Translation save error:", e.message);
+      console.error("Translation save error:", e);
+      console.error("Error type:", typeof e);
+      console.error("Error details:", e);
     }
   }
 
@@ -333,7 +463,8 @@ export default function AdminPage() {
     const ok = window.confirm("삭제하시겠습니까?");
     if (!ok) return;
     await fetch(`/api/artists/${id}`, { method: "DELETE" });
-    fetchArtists();
+    fetchArtists(); // 아티스트 탭용 페이징 데이터
+    fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
   }
 
   async function handleArtistEdit(artist: Artist) {
@@ -352,8 +483,8 @@ export default function AdminPage() {
       agency: artist.agency || "",
       fandom_name: artist.fandom_name || "",
       instagram_id: artist.instagram_id || "",
-      created_at: artist.created_at,
-      updated_at: artist.updated_at,
+      created_at: artist.created_at || undefined,
+      updated_at: artist.updated_at || undefined,
     });
     
     // 해당 아티스트의 번역 정보 조회
@@ -392,7 +523,7 @@ export default function AdminPage() {
         setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
       }
     } catch (e: any) {
-      console.error("Failed to fetch translations:", e.message);
+      console.error("Failed to fetch translations:", e);
       setAvailableTranslations([]);
       setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
     }
@@ -413,7 +544,8 @@ export default function AdminPage() {
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
-      fetchArtists(); // 목록 새로고침
+      fetchArtists(); // 아티스트 탭용 페이징 데이터
+      fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
     } catch (e: any) {
       alert("순위 변경 중 오류가 발생했습니다: " + e.message);
     }
@@ -461,6 +593,7 @@ export default function AdminPage() {
     field: { display: "grid", gap: 6 },
     label: { fontSize: 12, fontWeight: 600 as const, color: "#333" },
     input: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 12px" },
+    timeInput: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 12px", fontSize: "14px", fontFamily: "monospace" },
     select: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 8px", background: "#fff" },
     textarea: { minHeight: 80, borderRadius: 8, border: "1px solid #e3e3e7", padding: 12, resize: "vertical" as const },
     actions: { display: "flex", gap: 8, marginTop: 10 },
@@ -562,12 +695,29 @@ export default function AdminPage() {
               <form onSubmit={handleConcertSubmit}>
                 <div style={styles.formGrid}>
                   <div style={styles.field}>
-                    <label style={styles.label}>Artist EN</label>
-                    <input style={styles.input as any} value={concertForm.artist_name_en} onChange={(e) => setConcertForm({ ...concertForm, artist_name_en: e.target.value })} required />
-                  </div>
-                  <div style={styles.field}>
-                    <label style={styles.label}>Artist KR</label>
-                    <input style={styles.input as any} value={concertForm.artist_name_kr} onChange={(e) => setConcertForm({ ...concertForm, artist_name_kr: e.target.value })} />
+                    <label style={styles.label}>아티스트 선택</label>
+                    <select 
+                      style={styles.select as any} 
+                      value={concertForm.artist_id || ""} 
+                      onChange={(e) => {
+                        const selectedArtistId = e.target.value ? parseInt(e.target.value) : undefined;
+                        const selectedArtist = artists.find(a => a.id === selectedArtistId);
+                        setConcertForm({ 
+                          ...concertForm, 
+                          artist_id: selectedArtistId,
+                          artist_name_en: selectedArtist?.artist_name_en || "",
+                          artist_name_kr: selectedArtist?.artist_name_kr || ""
+                        });
+                      }}
+                      required
+                    >
+                      <option value="">아티스트를 선택하세요</option>
+                      {artists.map((artist) => (
+                        <option key={artist.id} value={artist.id}>
+                          {artist.artist_name_en}{artist.artist_name_kr ? ` (${artist.artist_name_kr})` : ""}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div style={styles.field}>
@@ -575,8 +725,89 @@ export default function AdminPage() {
                     <input type="date" style={styles.input as any} value={concertForm.start_date} onChange={(e) => setConcertForm({ ...concertForm, start_date: e.target.value })} required />
                   </div>
                   <div style={styles.field}>
+                    <label style={styles.label}>시작시간 (24시간 형식)</label>
+                    <input 
+                      type="time" 
+                      step="60" 
+                      style={styles.timeInput as any} 
+                      value={concertForm.start_time || ""} 
+                      onChange={(e) => setConcertForm({ ...concertForm, start_time: e.target.value })}
+                      placeholder="HH:MM"
+                    />
+                  </div>
+                  <div style={styles.field}>
                     <label style={styles.label}>종료날짜 (선택)</label>
                     <input type="date" style={styles.input as any} value={concertForm.end_date || ""} onChange={(e) => setConcertForm({ ...concertForm, end_date: e.target.value })} />
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>종료시간 (24시간 형식)</label>
+                    <input 
+                      type="time" 
+                      step="60" 
+                      style={styles.timeInput as any} 
+                      value={concertForm.end_time || ""} 
+                      onChange={(e) => setConcertForm({ ...concertForm, end_time: e.target.value })}
+                      placeholder="HH:MM"
+                    />
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>타임존</label>
+                    <select style={styles.select as any} value={concertForm.timezone || ""} onChange={(e) => setConcertForm({ ...concertForm, timezone: e.target.value })}>
+                      <option value="">선택하세요</option>
+                      
+                      <optgroup label="아시아">
+                        <option value="Asia/Seoul">Asia/Seoul (한국)</option>
+                        <option value="Asia/Tokyo">Asia/Tokyo (일본)</option>
+                        <option value="Asia/Shanghai">Asia/Shanghai (중국)</option>
+                        <option value="Asia/Hong_Kong">Asia/Hong_Kong (홍콩)</option>
+                        <option value="Asia/Taipei">Asia/Taipei (대만)</option>
+                        <option value="Asia/Singapore">Asia/Singapore (싱가포르)</option>
+                        <option value="Asia/Kuala_Lumpur">Asia/Kuala_Lumpur (말레이시아)</option>
+                        <option value="Asia/Bangkok">Asia/Bangkok (태국)</option>
+                        <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh (베트남)</option>
+                        <option value="Asia/Manila">Asia/Manila (필리핀)</option>
+                        <option value="Asia/Jakarta">Asia/Jakarta (인도네시아)</option>
+                        <option value="Asia/Kolkata">Asia/Kolkata (인도)</option>
+                        <option value="Asia/Dubai">Asia/Dubai (UAE)</option>
+                      </optgroup>
+                      
+                      <optgroup label="미국/캐나다">
+                        <option value="America/New_York">America/New_York (미국 동부)</option>
+                        <option value="America/Chicago">America/Chicago (미국 중부)</option>
+                        <option value="America/Denver">America/Denver (미국 산지)</option>
+                        <option value="America/Los_Angeles">America/Los_Angeles (미국 서부)</option>
+                        <option value="America/Anchorage">America/Anchorage (알래스카)</option>
+                        <option value="Pacific/Honolulu">Pacific/Honolulu (하와이)</option>
+                        <option value="America/Toronto">America/Toronto (캐나다 동부)</option>
+                        <option value="America/Vancouver">America/Vancouver (캐나다 서부)</option>
+                      </optgroup>
+                      
+                      <optgroup label="유럽">
+                        <option value="Europe/London">Europe/London (영국)</option>
+                        <option value="Europe/Paris">Europe/Paris (프랑스)</option>
+                        <option value="Europe/Berlin">Europe/Berlin (독일)</option>
+                        <option value="Europe/Rome">Europe/Rome (이탈리아)</option>
+                        <option value="Europe/Madrid">Europe/Madrid (스페인)</option>
+                        <option value="Europe/Amsterdam">Europe/Amsterdam (네덜란드)</option>
+                        <option value="Europe/Stockholm">Europe/Stockholm (스웨덴)</option>
+                        <option value="Europe/Moscow">Europe/Moscow (러시아)</option>
+                      </optgroup>
+                      
+                      <optgroup label="오세아니아">
+                        <option value="Australia/Sydney">Australia/Sydney (호주 동부)</option>
+                        <option value="Australia/Melbourne">Australia/Melbourne (호주 남동부)</option>
+                        <option value="Australia/Perth">Australia/Perth (호주 서부)</option>
+                        <option value="Pacific/Auckland">Pacific/Auckland (뉴질랜드)</option>
+                      </optgroup>
+                      
+                      <optgroup label="기타">
+                        <option value="Africa/Cairo">Africa/Cairo (이집트)</option>
+                        <option value="Africa/Johannesburg">Africa/Johannesburg (남아프리카)</option>
+                        <option value="America/Sao_Paulo">America/Sao_Paulo (브라질)</option>
+                        <option value="America/Mexico_City">America/Mexico_City (멕시코)</option>
+                        <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires (아르헨티나)</option>
+                      </optgroup>
+                    </select>
                   </div>
 
                   <div style={styles.field}>
@@ -632,6 +863,90 @@ export default function AdminPage() {
               </form>
             </div>
 
+       {/* 스크래핑 데이터 섹션 */}
+       <div style={styles.card}>
+         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+           <h2 style={styles.sectionTitle}>스크래핑된 콘서트 데이터</h2>
+           <button 
+             style={styles.primaryBtn as any} 
+             onClick={fetchScrapedConcerts}
+             disabled={scrapedLoading}
+           >
+             {scrapedLoading ? '로딩중...' : '새로고침'}
+           </button>
+         </div>
+              <div style={styles.tableWrap}>
+                <table style={styles.table as any}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th as any}>처리</th>
+                      <th style={styles.th as any}>제목</th>
+                      <th style={styles.th as any}>날짜</th>
+                      <th style={styles.th as any}>도시</th>
+                      <th style={styles.th as any}>소스</th>
+                      <th style={styles.th as any}>스크래핑 시각</th>
+                      <th style={styles.th as any}>처리 상태</th>
+                      <th style={styles.th as any}>티켓 URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scrapedConcerts.length === 0 && !scrapedLoading && (
+                      <tr>
+                        <td colSpan={8} style={styles.empty as any}>스크래핑된 데이터가 없습니다.</td>
+                      </tr>
+                    )}
+                    {scrapedLoading && (
+                      <tr>
+                        <td colSpan={8} style={styles.empty as any}>로딩중...</td>
+                      </tr>
+                    )}
+                    {scrapedConcerts.map((scraped) => (
+                      <tr key={scraped.id}>
+                        <td style={{...styles.td, textAlign: 'center'} as any}>
+                          <input
+                            type="checkbox"
+                            checked={scraped.processed || false}
+                            onChange={() => toggleProcessedStatus(scraped.id, scraped.processed || false)}
+                            style={{ 
+                              width: 16, 
+                              height: 16, 
+                              cursor: 'pointer',
+                              accentColor: '#D4AF37'
+                            }}
+                          />
+                        </td>
+                        <td style={styles.td as any}>{scraped.title || 'N/A'}</td>
+                        <td style={styles.td as any}>{scraped.date || 'N/A'}</td>
+                        <td style={styles.td as any}>{scraped.city || 'N/A'}</td>
+                        <td style={styles.td as any}>{scraped.source || 'N/A'}</td>
+                        <td style={styles.td as any}>{scraped.scraped_at ? new Date(scraped.scraped_at).toLocaleString() : 'N/A'}</td>
+                        <td style={styles.td as any}>
+                          <span style={{ 
+                            color: scraped.processed ? '#27ae60' : '#e74c3c',
+                            fontWeight: 'bold'
+                          }}>
+                            {scraped.processed ? '처리완료' : '미처리'}
+                          </span>
+                        </td>
+                        <td style={styles.td as any}>
+                          {scraped.ticket_url ? (
+                            <a 
+                              href={scraped.ticket_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ color: '#3498db', textDecoration: 'underline' }}
+                            >
+                              링크
+                            </a>
+                          ) : 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div style={styles.card}>
               <h2 style={styles.sectionTitle}>콘서트 목록</h2>
               <div style={styles.tableWrap}>
@@ -654,9 +969,15 @@ export default function AdminPage() {
                     {concerts.map((c) => (
                       <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => handleConcertEdit(c)}>
                         <td style={styles.td as any}>{
-                          c.end_date && c.end_date !== c.start_date 
-                            ? `${c.start_date} ~ ${c.end_date}`
-                            : c.start_date
+                          (() => {
+                            // ISO 형식에서 날짜 부분만 추출
+                            const startDate = c.start_date ? c.start_date.split('T')[0] : '';
+                            const endDate = c.end_date ? c.end_date.split('T')[0] : '';
+                            
+                            return c.end_date && endDate !== startDate 
+                              ? `${startDate} ~ ${endDate}`
+                              : startDate;
+                          })()
                         }</td>
                         <td style={styles.td as any}>{c.artist_name_en}{c.artist_name_kr ? ` / ${c.artist_name_kr}` : ""}</td>
                         <td style={styles.td as any}><span style={styles.badge(typeColor(c.concert_type))}>{c.concert_type}</span></td>
@@ -711,6 +1032,7 @@ export default function AdminPage() {
                     <select style={styles.select as any} value={artistForm.category || "BOY_GROUP"} onChange={(e) => setArtistForm({ ...artistForm, category: e.target.value as Artist["category"] })}>
                       <option value="BOY_GROUP">BOY_GROUP</option>
                       <option value="GIRL_GROUP">GIRL_GROUP</option>
+                      <option value="COED_GROUP">COED_GROUP</option>
                       <option value="SOLO">SOLO</option>
                       <option value="MC">MC</option>
                       <option value="ETC">ETC</option>
@@ -786,6 +1108,18 @@ export default function AdminPage() {
 
             <div style={styles.card}>
               <h2 style={styles.sectionTitle}>아티스트 목록</h2>
+              
+              {/* 아티스트 검색 */}
+              <div style={styles.field}>
+                <label style={styles.label}>아티스트 검색</label>
+                <input 
+                  style={styles.input as any} 
+                  value={artistSearchTerm} 
+                  onChange={(e) => setArtistSearchTerm(e.target.value)} 
+                  placeholder="영문명 또는 한글명으로 검색..."
+                />
+              </div>
+              
               <div style={styles.tableWrap}>
                 <table style={styles.table as any}>
                   <thead>
@@ -804,7 +1138,28 @@ export default function AdminPage() {
                         <td colSpan={6} style={styles.empty as any}>등록된 아티스트가 없습니다.</td>
                       </tr>
                     )}
-                    {artists.map((a, index) => (
+                    {artists.length > 0 && artists.filter((a) => {
+                      if (!artistSearchTerm) return true;
+                      const searchLower = artistSearchTerm.toLowerCase();
+                      return (
+                        a.artist_name_en.toLowerCase().includes(searchLower) ||
+                        (a.artist_name_kr && a.artist_name_kr.includes(artistSearchTerm))
+                      );
+                    }).length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={styles.empty as any}>검색 결과가 없습니다.</td>
+                      </tr>
+                    )}
+                    {artists
+                      .filter((a) => {
+                        if (!artistSearchTerm) return true;
+                        const searchLower = artistSearchTerm.toLowerCase();
+                        return (
+                          a.artist_name_en.toLowerCase().includes(searchLower) ||
+                          (a.artist_name_kr && a.artist_name_kr.includes(artistSearchTerm))
+                        );
+                      })
+                      .map((a, index) => (
                       <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleArtistEdit(a)}>
                         <td style={styles.td as any}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

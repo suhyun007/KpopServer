@@ -86,6 +86,17 @@ export async function GET(req: NextRequest) {
     // 검색 모드일 때는 이름순 정렬, 아니면 순위순 정렬
     if (search === 'true') {
       query = query.order('artist_name_en', { ascending: true });
+      // 검색 모드일 때는 페이징 제거 (모든 데이터 반환)
+      const { data, error } = await query;
+      
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        artists: data ?? []
+      });
     } else {
       query = query.order('rank', { ascending: true });
     }
