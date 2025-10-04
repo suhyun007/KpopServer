@@ -12,13 +12,21 @@ export async function GET(req: NextRequest) {
     const timezone = searchParams.get('timezone');
     const showAll = searchParams.get('show_all'); // 관리자용 파라미터
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '15');
+    const limit = parseInt(searchParams.get('limit') || '20');
 
     // 특정 콘서트 ID로 조회
     if (id) {
       const { data, error } = await supabaseAdmin
         .from('concerts')
-        .select('*')
+        .select(`
+          *,
+          artists!inner(
+            id,
+            artist_name_en,
+            artist_name_kr,
+            color_code
+          )
+        `)
         .eq('id', id)
         .single();
 
@@ -31,7 +39,15 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('concerts')
-      .select('*');
+      .select(`
+        *,
+        artists!inner(
+          id,
+          artist_name_en,
+          artist_name_kr,
+          color_code
+        )
+      `);
 
     // 관리자 요청이 아니고 timezone이 있을 때만 필터링 적용
     if (!showAll && timezone) {

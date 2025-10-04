@@ -101,6 +101,12 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   handler satisfies RouteHandlerConfig<"/api/scraped-concerts">
 }
 
+// Validate ../../src/app/api/visit-logs/route.ts
+{
+  const handler = {} as typeof import("../../src/app/api/visit-logs/route.js")
+  handler satisfies RouteHandlerConfig<"/api/visit-logs">
+}
+
 
 
 

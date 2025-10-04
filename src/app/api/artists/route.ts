@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
         artists: data ?? []
       });
     } else {
+      // search 파라미터가 없거나 'true'가 아닐 때는 순위순 정렬
       query = query.order('rank', { ascending: true }); // 순위 오름차순 (1위가 먼저)
     }
 

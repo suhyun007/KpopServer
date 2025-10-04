@@ -12,7 +12,7 @@ type Concert = {
   start_time?: string; // 시간 (HH:MM)
   end_time?: string; // 시간 (HH:MM)
   timezone?: string; // 타임존 (예: "Asia/Seoul", "America/Los_Angeles")
-  concert_type: "CONCERT" | "FANMEETING" | "TOUR" | "SHOWCASE" | "SCHEDULE" | "ALBUM" | "GOODS" | "ETC";
+  concert_type: "CONCERT" | "FANMEETING" | "TOUR" | "SHOWCASE" | "SCHEDULE" | "ALBUM" | "GOODS" | "FESTIVAL" | "ETC";
   venue_name_en?: string;
   venue_name_kr?: string;
   city?: string;
@@ -23,6 +23,7 @@ type Concert = {
   push_status?: "draft" | "pending" | "sent";
   push_sent?: boolean;
   push_sent_at?: string;
+  solo_typ?: boolean; // true: 단독 콘서트, false: 단독 아님
 };
 
 type Artist = {
@@ -62,7 +63,7 @@ export default function AdminPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalConcerts, setTotalConcerts] = useState(0);
   const [concertsLoading, setConcertsLoading] = useState(false);
-  const [concertSearchTerm, setConcertSearchTerm] = useState("");
+  const [concertSearchTerm, setConcertSearchTerm] = useState('');
   const [concertForm, setConcertForm] = useState<Concert>({
     artist_id: undefined,
     artist_name_en: "",
@@ -134,12 +135,16 @@ export default function AdminPage() {
     }
   }, [activeTab]);
 
-  // 콘서트 검색 시 모든 데이터 로드
+  // 검색어에 따른 데이터 로딩
   useEffect(() => {
-    if (isAuthenticated && activeTab === 'concerts' && concertSearchTerm) {
-      fetchAllConcerts();
-    } else if (isAuthenticated && activeTab === 'concerts' && !concertSearchTerm) {
-      fetchConcerts(1);
+    if (isAuthenticated && activeTab === 'concerts') {
+      if (concertSearchTerm.trim()) {
+        // 검색어가 있으면 모든 데이터를 가져와서 클라이언트에서 필터링
+        fetchAllConcerts();
+      } else {
+        // 검색어가 없으면 페이징된 데이터
+        fetchConcerts(1);
+      }
     }
   }, [concertSearchTerm, isAuthenticated, activeTab]);
 
@@ -189,33 +194,37 @@ export default function AdminPage() {
     }
   }
 
-  // 모든 콘서트 데이터 가져오기 (검색용)
+  // 콘서트용 아티스트 조회 (모든 아티스트)
+  async function fetchAllArtists() {
+    try {
+      const res = await fetch("/api/artists?search=true"); // 이름순 정렬로 모든 아티스트 조회
+      const json = await res.json();
+      if (json.success) {
+        // 무조건 순위순으로 정렬
+        const sortedArtists = (json.artists || []).sort((a: Artist, b: Artist) => {
+          return (a.rank || 999) - (b.rank || 999);
+        });
+        setArtists(sortedArtists);
+      }
+    } catch (e: any) {
+      console.error("Failed to fetch all artists:", e);
+    }
+  }
+
+  // 검색용 모든 콘서트 조회
   async function fetchAllConcerts() {
     setConcertsLoading(true);
     try {
-      const res = await fetch(`/api/concerts?show_all=true&limit=1000`); // 모든 콘서트 가져오기
+      const res = await fetch(`/api/concerts?show_all=true&limit=1000`); // 모든 콘서트 조회
       const json = await res.json();
       if (json.success) {
         setConcerts(json.concerts);
-        setCurrentPage(1);
-        setTotalPages(1);
         setTotalConcerts(json.concerts.length);
       }
     } catch (error) {
       console.error("Failed to fetch all concerts:", error);
     } finally {
       setConcertsLoading(false);
-    }
-  }
-
-  // 콘서트용 아티스트 조회 (모든 아티스트)
-  async function fetchAllArtists() {
-    try {
-      const res = await fetch("/api/artists?search=true"); // 이름순 정렬로 모든 아티스트 조회
-      const json = await res.json();
-      if (json.success) setArtists(json.artists || []);
-    } catch (e: any) {
-      console.error("Failed to fetch all artists:", e);
     }
   }
 
@@ -270,6 +279,9 @@ export default function AdminPage() {
       const method = isUpdate ? "PUT" : "POST";
       
       // 날짜와 시간을 조합해서 ISO 형식으로 변환
+      console.log('=== SAVING CONCERT ===');
+      console.log('Full concertForm:', concertForm);
+      console.log('solo_typ specifically:', concertForm.solo_typ, typeof concertForm.solo_typ);
       const processedForm = {
         ...concertForm,
         artist_id: concertForm.artist_id || undefined,
@@ -307,7 +319,7 @@ export default function AdminPage() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
       alert(isUpdate ? "콘서트가 성공적으로 수정되었습니다!" : "콘서트가 성공적으로 등록되었습니다!");
-      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft" });
+      setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft", solo_typ: true });
       fetchConcerts(currentPage);
     } catch (e: any) {
       setConcertError(e.message);
@@ -401,13 +413,15 @@ export default function AdminPage() {
       ticket_price: concert.ticket_price || '',
       description: concert.description || '',
       memo: concert.memo || '',
-      push_status: concert.push_status || 'draft'
+      push_status: concert.push_status || 'draft',
+      solo_typ: concert.solo_typ ?? true
     };
+    console.log('Editing concert, solo_typ from DB:', concert.solo_typ, '-> processed:', processedConcert.solo_typ);
     setConcertForm(processedConcert);
   }
 
   function handleConcertNew() {
-    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft" });
+    setConcertForm({ artist_id: undefined, artist_name_en: "", artist_name_kr: "", start_date: "", end_date: "", start_time: "", end_time: "", timezone: "", concert_type: "CONCERT", venue_name_en: "", venue_name_kr: "", city: "", country: "", ticket_price: "", description: "", memo: "", push_status: "draft", solo_typ: true });
   }
 
   // 아티스트 관련 함수들
@@ -417,7 +431,13 @@ export default function AdminPage() {
       const res = await fetch(`/api/artists?page=${page}&limit=${itemsPerPage}&offset=${offset}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
-      setArtists(json.artists || []);
+      
+      // 무조건 순위순으로 정렬 (서버 정렬과 관계없이)
+      const sortedArtists = (json.artists || []).sort((a: Artist, b: Artist) => {
+        return (a.rank || 999) - (b.rank || 999);
+      });
+      
+      setArtists(sortedArtists);
       setTotalArtists(json.total || 0);
       setArtistTotalPages(json.totalPages || 0);
       setArtistCurrentPage(page);
@@ -814,7 +834,7 @@ export default function AdminPage() {
                       required
                     >
                       <option value="">아티스트를 선택하세요</option>
-                      {artists.map((artist) => (
+                      {artists.sort((a, b) => a.artist_name_en.toLowerCase().localeCompare(b.artist_name_en.toLowerCase())).map((artist) => (
                         <option key={artist.id} value={artist.id}>
                           {artist.artist_name_en}{artist.artist_name_kr ? ` (${artist.artist_name_kr})` : ""}
                         </option>
@@ -922,10 +942,31 @@ export default function AdminPage() {
                       <option value="SHOWCASE">SHOWCASE</option>
                       <option value="SCHEDULE">SCHEDULE</option>
                       <option value="ALBUM">ALBUM</option>
-                      <option value="ETC">ETC</option>
+                      <option value="FESTIVAL">FESTIVAL</option>
                       <option value="GOODS">GOODS</option>
+                      <option value="ETC">ETC</option>
                     </select>
                   </div>
+
+                  <div style={styles.field}>
+                    <label style={styles.label}>Solo Type</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={Boolean(concertForm.solo_typ)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          console.log('Checkbox changed from', concertForm.solo_typ, 'to', newValue);
+                          setConcertForm({ ...concertForm, solo_typ: newValue });
+                        }}
+                        style={{ transform: 'scale(1.2)' }}
+                      />
+                      <span style={{ fontSize: '14px', color: '#666' }}>
+                        {concertForm.solo_typ ? '단독 콘서트' : '여러 아티스트 참가'}
+                      </span>
+                    </div>
+                  </div>
+
                   <div style={styles.field}>
                     <label style={styles.label}>Venue EN</label>
                     <input style={styles.input as any} value={concertForm.venue_name_en} onChange={(e) => setConcertForm({ ...concertForm, venue_name_en: e.target.value })} />
@@ -1052,19 +1093,22 @@ export default function AdminPage() {
             </div>
 
             <div style={styles.card}>
-              <h2 style={styles.sectionTitle}>콘서트 목록</h2>
-              
-              {/* 콘서트 검색 */}
-              <div style={styles.field}>
-                <label style={styles.label}>아티스트 검색</label>
-                <input 
-                  style={styles.input as any} 
-                  value={concertSearchTerm} 
-                  onChange={(e) => setConcertSearchTerm(e.target.value)} 
-                  placeholder="아티스트 영문명 또는 한글명으로 검색..."
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={styles.sectionTitle}>콘서트 목록</h2>
+                <input
+                  type="text"
+                  placeholder="아티스트 영문, 한글로 검색..."
+                  value={concertSearchTerm}
+                  onChange={(e) => setConcertSearchTerm(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    minWidth: '250px'
+                  }}
                 />
               </div>
-              
               <div style={styles.tableWrap}>
                 <table style={styles.table as any}>
                   <thead>
@@ -1086,29 +1130,16 @@ export default function AdminPage() {
                       <tr>
                         <td colSpan={6} style={styles.empty as any}>등록된 콘서트가 없습니다.</td>
                       </tr>
-                    ) : concerts.filter((c) => {
-                      if (!concertSearchTerm) return true;
-                      const searchLower = concertSearchTerm.toLowerCase();
-                      return (
-                        c.artist_name_en.toLowerCase().includes(searchLower) ||
-                        (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
-                      );
-                    }).length === 0 ? (
-                      <tr>
-                        <td colSpan={6} style={styles.empty as any}>검색 결과가 없습니다.</td>
-                      </tr>
                     ) : (
-                      concerts
-                        .filter((c) => {
-                          if (!concertSearchTerm) return true;
-                          const searchLower = concertSearchTerm.toLowerCase();
-                          return (
-                            c.artist_name_en.toLowerCase().includes(searchLower) ||
-                            (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
-                          );
-                        })
-                        .map((c) => (
-                      <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => c.id && handleConcertEdit(c)}>
+                      concerts.filter((c) => {
+                        if (!concertSearchTerm.trim()) return true;
+                        const searchLower = concertSearchTerm.toLowerCase();
+                        return (
+                          c.artist_name_en.toLowerCase().includes(searchLower) ||
+                          (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
+                        );
+                      }).map((c) => (
+                      <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => handleConcertEdit(c)}>
                         <td style={styles.td as any}>{
                           (() => {
                             // ISO 형식에서 날짜 부분만 추출
@@ -1126,7 +1157,7 @@ export default function AdminPage() {
                         <td style={{...styles.td, textAlign: 'center'} as any}>
                           <select 
                             value={c.push_status || 'draft'} 
-                            onChange={(e) => c.id && handlePushStatusChange(c.id, e.target.value as "draft" | "pending" | "sent")}
+                            onChange={(e) => handlePushStatusChange(c.id, e.target.value as "draft" | "pending" | "sent")}
                             onClick={(e) => e.stopPropagation()}
                             style={{
                               padding: '4px 8px',
@@ -1142,7 +1173,7 @@ export default function AdminPage() {
                           </select>
                         </td>
                         <td style={{...styles.td, textAlign: 'center'} as any}>
-                          <button style={styles.dangerBtn as any} onClick={(e) => { e.stopPropagation(); c.id && handleConcertDelete(c.id); }}>del</button>
+                          <button style={styles.dangerBtn as any} onClick={(e) => { e.stopPropagation(); handleConcertDelete(c.id); }}>del</button>
                         </td>
                       </tr>
                       ))
@@ -1153,43 +1184,34 @@ export default function AdminPage() {
               
               {/* 페이징 컴포넌트 */}
               {totalConcerts > 0 && !concertSearchTerm && (
-                <div style={styles.pagination}>
-                  <button 
-                    style={styles.pageBtn as any}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: '20px',
+                  gap: '10px'
+                }}>
+                  <button
                     onClick={() => fetchConcerts(currentPage - 1)}
-                    disabled={currentPage === 1 || concertsLoading || totalPages <= 1}
+                    disabled={currentPage === 1 || concertsLoading}
+                    style={{
+                      padding: '8px 16px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      backgroundColor: currentPage === 1 || concertsLoading ? '#f5f5f5' : 'white',
+                      color: currentPage === 1 || concertsLoading ? '#999' : '#333',
+                      cursor: currentPage === 1 || concertsLoading ? 'not-allowed' : 'pointer'
+                    }}
                   >
                     이전
                   </button>
                   
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
-                    if (pageNum > totalPages) return null;
-                    
-                    return (
-                      <button
-                        key={pageNum}
-                        style={{
-                          ...styles.pageBtn,
-                          ...(pageNum === currentPage ? styles.pageBtnActive : {})
-                        } as any}
-                        onClick={() => fetchConcerts(pageNum)}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  
-                  <button 
-                    style={styles.pageBtn as any}
-                    onClick={() => fetchConcerts(currentPage + 1)}
-                    disabled={currentPage === totalPages || concertsLoading || totalPages <= 1}
-                  >
-                    다음
-                  </button>
-                  
-                  <span style={styles.pageInfo}>
-                    {currentPage} / {totalPages} 페이지 (총 {totalConcerts}개
+                  <span style={{
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    color: '#666'
+                  }}>
+                    {currentPage} / {totalPages} (총 {totalConcerts}개
                     {concertSearchTerm && (
                       <span style={{ color: '#D4AF37' }}>
                         {' '}- 검색 결과: {concerts.filter((c) => {
@@ -1203,34 +1225,21 @@ export default function AdminPage() {
                     )}
                     )
                   </span>
-                </div>
-              )}
-              
-              {/* 검색 결과 정보 */}
-              {concertSearchTerm && totalConcerts > 0 && (
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginTop: '20px',
-                  padding: '12px',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  color: '#666'
-                }}>
-                  <span>
-                    <strong style={{ color: '#D4AF37' }}>"{concertSearchTerm}"</strong> 검색 결과: 
-                    <strong style={{ color: '#D4AF37', marginLeft: '8px' }}>
-                      {concerts.filter((c) => {
-                        const searchLower = concertSearchTerm.toLowerCase();
-                        return (
-                          c.artist_name_en.toLowerCase().includes(searchLower) ||
-                          (c.artist_name_kr && c.artist_name_kr.includes(concertSearchTerm))
-                        );
-                      }).length}개
-                    </strong>
-                  </span>
+                  
+                  <button
+                    onClick={() => fetchConcerts(currentPage + 1)}
+                    disabled={currentPage === totalPages || concertsLoading}
+                    style={{
+                      padding: '8px 16px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      backgroundColor: currentPage === totalPages || concertsLoading ? '#f5f5f5' : 'white',
+                      color: currentPage === totalPages || concertsLoading ? '#999' : '#333',
+                      cursor: currentPage === totalPages || concertsLoading ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    다음
+                  </button>
                 </div>
               )}
             </div>
@@ -1394,6 +1403,7 @@ export default function AdminPage() {
                       </tr>
                     )}
                     {artists
+                      .sort((a, b) => (a.rank || 999) - (b.rank || 999)) // 무조건 순위순 정렬
                       .filter((a) => {
                         if (!artistSearchTerm) return true;
                         const searchLower = artistSearchTerm.toLowerCase();
@@ -1402,7 +1412,6 @@ export default function AdminPage() {
                           (a.artist_name_kr && a.artist_name_kr.includes(artistSearchTerm))
                         );
                       })
-                      .sort((a, b) => a.rank - b.rank) // 순위 오름차순 정렬 (1위부터)
                       .map((a, index) => (
                       <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleArtistEdit(a)}>
                         <td style={styles.td as any}>
