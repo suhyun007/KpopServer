@@ -125,12 +125,13 @@ export default function AdminPage() {
     const authStatus = localStorage.getItem('admin_authenticated');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
-      // 콘서트 탭에서도 아티스트 데이터를 가져와야 셀렉트 박스에 표시됨
-      fetchAllArtists(); // 모든 아티스트 조회
       if (activeTab === 'concerts') {
+        // 콘서트 탭에서만 모든 아티스트 조회 (셀렉트 박스용)
+        fetchAllArtists(); // 모든 아티스트 조회
         fetchConcerts(1); // 첫 페이지부터 시작
       } else {
-        fetchArtists(); // 아티스트 탭에서는 페이징된 데이터
+        // 아티스트 탭에서는 페이징된 데이터만
+        fetchArtists(1); // 아티스트 탭에서는 페이징된 데이터 (첫 페이지부터)
       }
     }
   }, [activeTab]);
@@ -154,12 +155,13 @@ export default function AdminPage() {
       if (password === 'adminowner') {
         setIsAuthenticated(true);
         localStorage.setItem('admin_authenticated', 'true');
-        // 콘서트 탭에서도 아티스트 데이터를 가져와야 셀렉트 박스에 표시됨
-        fetchAllArtists(); // 모든 아티스트 조회
         if (activeTab === 'concerts') {
+          // 콘서트 탭에서만 모든 아티스트 조회 (셀렉트 박스용)
+          fetchAllArtists(); // 모든 아티스트 조회
           fetchConcerts();
         } else {
-          fetchArtists(); // 아티스트 탭에서는 페이징된 데이터
+          // 아티스트 탭에서는 페이징된 데이터만
+          fetchArtists(1); // 아티스트 탭에서는 페이징된 데이터 (첫 페이지부터)
         }
       } else {
         alert('비밀번호가 올바르지 않습니다.');
@@ -287,20 +289,31 @@ export default function AdminPage() {
         artist_id: concertForm.artist_id || undefined,
         start_date: concertForm.start_date ? (() => {
           if (concertForm.start_time) {
-            // 날짜 + 시간을 조합해서 ISO 형식으로 저장
+            // 날짜 + 시간을 조합해서 로컬 타임존으로 저장 (UTC 변환 없이)
             const dateTimeString = `${concertForm.start_date}T${concertForm.start_time}:00`;
-            return new Date(dateTimeString).toISOString();
+            console.log('🔍 시간 저장 디버깅:');
+            console.log('- 입력된 start_time:', concertForm.start_time);
+            console.log('- 입력된 start_date:', concertForm.start_date);
+            console.log('- 조합된 dateTimeString:', dateTimeString);
+            
+            // 사용자가 입력한 시간을 그대로 저장 (완전히 문자열로만)
+            // 예: 20:00 → 2025-10-05T20:00:00.000Z (명시적 UTC 표시)
+            const isoString = `${dateTimeString}.000Z`;
+            
+            console.log('- 최종 ISO String (명시적 UTC):', isoString);
+            return isoString;
           } else {
-            // 시간이 없으면 자정으로 설정
-            return new Date(concertForm.start_date + 'T00:00:00').toISOString();
+            // 시간이 없으면 자정으로 설정 (명시적 UTC)
+            return `${concertForm.start_date}T00:00:00.000Z`;
           }
         })() : undefined,
         end_date: concertForm.end_date ? (() => {
           if (concertForm.end_time) {
             const dateTimeString = `${concertForm.end_date}T${concertForm.end_time}:00`;
-            return new Date(dateTimeString).toISOString();
+            // 사용자가 입력한 시간을 그대로 저장 (명시적 UTC)
+            return `${dateTimeString}.000Z`;
           } else {
-            return new Date(concertForm.end_date + 'T00:00:00').toISOString();
+            return `${concertForm.end_date}T00:00:00.000Z`;
           }
         })() : undefined,
         // 콘서트 생성/수정 시 푸시 알림 상태를 'draft'로 설정 (푸시 전송 안함)
@@ -393,16 +406,29 @@ export default function AdminPage() {
       start_date: concert.start_date ? concert.start_date.split('T')[0] : '',
       end_date: concert.end_date ? concert.end_date.split('T')[0] : '',
       start_time: concert.start_date ? (() => {
-        const dateTime = new Date(concert.start_date);
-        const hours = dateTime.getHours().toString().padStart(2, '0');
-        const minutes = dateTime.getMinutes().toString().padStart(2, '0');
-        return `${hours}:${minutes}`;
+        // DB에서 저장된 시간 문자열을 직접 파싱 (Date 객체 변환 없이)
+        const timeMatch = concert.start_date.match(/T(\d{2}):(\d{2}):/);
+        if (timeMatch) {
+          const hours = timeMatch[1];
+          const minutes = timeMatch[2];
+          const result = `${hours}:${minutes}`;
+          console.log('🔍 시간 조회 디버깅 (문자열 파싱):');
+          console.log('- DB의 start_date:', concert.start_date);
+          console.log('- 추출된 시간:', result);
+          console.log('- hours:', hours, 'minutes:', minutes);
+          return result;
+        }
+        return '';
       })() : '',
       end_time: concert.end_date ? (() => {
-        const dateTime = new Date(concert.end_date);
-        const hours = dateTime.getHours().toString().padStart(2, '0');
-        const minutes = dateTime.getMinutes().toString().padStart(2, '0');
-        return `${hours}:${minutes}`;
+        // DB에서 저장된 시간 문자열을 직접 파싱 (Date 객체 변환 없이)
+        const timeMatch = concert.end_date.match(/T(\d{2}):(\d{2}):/);
+        if (timeMatch) {
+          const hours = timeMatch[1];
+          const minutes = timeMatch[2];
+          return `${hours}:${minutes}`;
+        }
+        return '';
       })() : '',
       timezone: concert.timezone || '',
       concert_type: concert.concert_type || 'CONCERT',
@@ -525,7 +551,7 @@ export default function AdminPage() {
       alert(isUpdate ? "아티스트가 성공적으로 수정되었습니다!" : "아티스트가 성공적으로 등록되었습니다!");
       setArtistForm({ artist_name_en: "", artist_name_kr: "", rank: 1, fan_count: "", color_code: "", category: "BOY_GROUP", agency: "", fandom_name: "", instagram_id: "" });
       setTranslations({ ko: "", en: "", ja: "", zh: "", es: "" });
-      fetchArtists(); // 아티스트 탭용 페이징 데이터
+      fetchArtists(1); // 아티스트 탭용 페이징 데이터 (첫 페이지부터)
       fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
     } catch (e: any) {
       setArtistError(e.message);
@@ -583,7 +609,7 @@ export default function AdminPage() {
     const ok = window.confirm("삭제하시겠습니까?");
     if (!ok) return;
     await fetch(`/api/artists/${id}`, { method: "DELETE" });
-    fetchArtists(); // 아티스트 탭용 페이징 데이터
+      fetchArtists(1); // 아티스트 탭용 페이징 데이터 (첫 페이지부터)
     fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
   }
 
@@ -664,7 +690,7 @@ export default function AdminPage() {
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed");
-      fetchArtists(); // 아티스트 탭용 페이징 데이터
+      fetchArtists(1); // 아티스트 탭용 페이징 데이터 (첫 페이지부터)
       fetchAllArtists(); // 콘서트 셀렉트 박스용 전체 데이터
     } catch (e: any) {
       alert("순위 변경 중 오류가 발생했습니다: " + e.message);
@@ -706,30 +732,30 @@ export default function AdminPage() {
       cursor: "pointer",
       fontWeight: 600 as const
     }),
-    grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 },
-    card: { background: "#fff", borderRadius: 12, boxShadow: "0 6px 18px rgba(0,0,0,0.06)", padding: 20 },
-    sectionTitle: { fontSize: 16, fontWeight: 700 as const, margin: "0 0 16px" },
-    formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
-    field: { display: "grid", gap: 6 },
-    label: { fontSize: 12, fontWeight: 600 as const, color: "#333" },
-    input: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 12px" },
-    timeInput: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 12px", fontSize: "14px", fontFamily: "monospace" },
-    select: { height: 38, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 8px", background: "#fff" },
-    textarea: { minHeight: 80, borderRadius: 8, border: "1px solid #e3e3e7", padding: 12, resize: "vertical" as const },
-    actions: { display: "flex", gap: 8, marginTop: 10 },
-    primaryBtn: { background: "#D4AF37", color: "#fff", border: 0, height: 40, borderRadius: 8, padding: "0 14px", fontWeight: 700 as const, cursor: "pointer" },
-    dangerBtn: { fontSize:10, background: "#e74c3c", color: "#fff", border: 0, height: 20, borderRadius: 8, padding: "0 5px", cursor: "pointer" },
-    swapBtn: { fontSize:8, background: "#3498db", color: "#fff", border: 0, height: 16, borderRadius: 6, padding: "0px 3px 0px 3px", cursor: "pointer", fontWeight: 600 as const },
+    grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+    card: { background: "#fff", borderRadius: 12, boxShadow: "0 6px 18px rgba(0,0,0,0.06)", padding: 15 },
+    sectionTitle: { fontSize: 14, fontWeight: 700 as const, margin: "0 0 10px" },
+    formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+    field: { display: "grid", gap: 3 },
+    label: { fontSize: 10, fontWeight: 600 as const, color: "#333" },
+    input: { height: 30, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 10px", fontSize: "12px" },
+    timeInput: { height: 30, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 10px", fontSize: "12px", fontFamily: "monospace" },
+    select: { height: 30, borderRadius: 8, border: "1px solid #e3e3e7", padding: "0 8px", background: "#fff", fontSize: "12px" },
+    textarea: { minHeight: 27, borderRadius: 8, border: "1px solid #e3e3e7", padding: 8, resize: "vertical" as const, fontSize: "12px"},
+    actions: { display: "flex", gap: 4, marginTop: 6 },
+    primaryBtn: { background: "#D4AF37", color: "#fff", border: 0, height: 26, borderRadius: 4, padding: "0 6px", fontWeight: 700 as const, cursor: "pointer", fontSize: "11px" },
+    dangerBtn: { fontSize: 8, background: "#e74c3c", color: "#fff", border: 0, height: 16, borderRadius: 4, padding: "0 3px", cursor: "pointer" },
+    swapBtn: { fontSize: 6, background: "#3498db", color: "#fff", border: 0, height: 12, borderRadius: 3, padding: "0px 1px 0px 1px", cursor: "pointer", fontWeight: 600 as const },
     tableWrap: { overflow: "auto" },
     table: { width: "100%", borderCollapse: "separate" as const, borderSpacing: 0 },
     th: { textAlign: "left" as const, fontSize: 10, color: "#666", padding: "10px 12px", borderBottom: "1px solid #eee", background: "#fafafa" },
     td: { padding: "5px", fontSize: 10, borderBottom: "1px solid #f0f0f0" },
     badge: (color: string) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: color, color: "#fff", fontSize: 10, fontWeight: 600 as const }),
     empty: { color: "#888", padding: 10, fontSize: 10, textAlign: "center" as const },
-    pagination: { display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 16, padding: "12px 0" },
-    pageBtn: { background: "#f0f0f0", border: "1px solid #ddd", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontSize: 12 },
-    pageBtnActive: { background: "#D4AF37", color: "#fff", border: "1px solid #D4AF37" },
-    pageInfo: { fontSize: 12, color: "#666", margin: "0 8px" }
+    pagination: { display: "flex", justifyContent: "center", alignItems: "center", gap: 1, marginTop: 6, padding: "2px 0" },
+    pageBtn: { background: "#f0f0f0", border: "1px solid #ddd", padding: "3px", margin: "0 1px", borderRadius: 2, cursor: "pointer", fontSize: 12, height: "20px", lineHeight: "12px", minWidth: "20px" },
+    pageBtnActive: { background: "#D4AF37", color: "#fff", border: "1px solid #D4AF37", fontSize: 12, height: "20px" },
+    pageInfo: { fontSize: 12, color: "#666", margin: "0 2px" }
   } as const;
 
   function typeColor(type: Concert["concert_type"]) {
@@ -843,18 +869,38 @@ export default function AdminPage() {
                   </div>
 
                   <div style={styles.field}>
+                    <label style={styles.label}>Solo Type</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={Boolean(concertForm.solo_typ)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          console.log('Checkbox changed from', concertForm.solo_typ, 'to', newValue);
+                          setConcertForm({ ...concertForm, solo_typ: newValue });
+                        }}
+                        style={{ transform: 'scale(1.2)' }}
+                      />
+                      <span style={{ fontSize: '11px', color: '#666' }}>
+                        {concertForm.solo_typ ? '단독 콘서트' : '여러 아티스트 참가'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={styles.field}>
                     <label style={styles.label}>시작날짜</label>
                     <input type="date" style={styles.input as any} value={concertForm.start_date} onChange={(e) => setConcertForm({ ...concertForm, start_date: e.target.value })} required />
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>시작시간 (24시간 형식)</label>
                     <input 
-                      type="time" 
-                      step="60" 
+                      type="text" 
                       style={styles.timeInput as any} 
                       value={concertForm.start_time || ""} 
                       onChange={(e) => setConcertForm({ ...concertForm, start_time: e.target.value })}
-                      placeholder="HH:MM"
+                      placeholder="HH:MM (예: 14:30)"
+                      pattern="[0-9]{2}:[0-9]{2}"
+                      maxLength={5}
                     />
                   </div>
                   <div style={styles.field}>
@@ -864,12 +910,13 @@ export default function AdminPage() {
                   <div style={styles.field}>
                     <label style={styles.label}>종료시간 (24시간 형식)</label>
                     <input 
-                      type="time" 
-                      step="60" 
+                      type="text" 
                       style={styles.timeInput as any} 
                       value={concertForm.end_time || ""} 
                       onChange={(e) => setConcertForm({ ...concertForm, end_time: e.target.value })}
-                      placeholder="HH:MM"
+                      placeholder="HH:MM (예: 16:30)"
+                      pattern="[0-9]{2}:[0-9]{2}"
+                      maxLength={5}
                     />
                   </div>
                   <div style={styles.field}>
@@ -946,25 +993,6 @@ export default function AdminPage() {
                       <option value="GOODS">GOODS</option>
                       <option value="ETC">ETC</option>
                     </select>
-                  </div>
-
-                  <div style={styles.field}>
-                    <label style={styles.label}>Solo Type</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input 
-                        type="checkbox" 
-                        checked={Boolean(concertForm.solo_typ)}
-                        onChange={(e) => {
-                          const newValue = e.target.checked;
-                          console.log('Checkbox changed from', concertForm.solo_typ, 'to', newValue);
-                          setConcertForm({ ...concertForm, solo_typ: newValue });
-                        }}
-                        style={{ transform: 'scale(1.2)' }}
-                      />
-                      <span style={{ fontSize: '14px', color: '#666' }}>
-                        {concertForm.solo_typ ? '단독 콘서트' : '여러 아티스트 참가'}
-                      </span>
-                    </div>
                   </div>
 
                   <div style={styles.field}>
@@ -1101,10 +1129,10 @@ export default function AdminPage() {
                   value={concertSearchTerm}
                   onChange={(e) => setConcertSearchTerm(e.target.value)}
                   style={{
-                    padding: '8px 12px',
+                    padding: '5px 12px',
                     border: '1px solid #ddd',
                     borderRadius: '4px',
-                    fontSize: '14px',
+                    fontSize: '12px',
                     minWidth: '250px'
                   }}
                 />
@@ -1163,7 +1191,7 @@ export default function AdminPage() {
                               padding: '4px 8px',
                               borderRadius: '4px',
                               border: '1px solid #ddd',
-                              fontSize: '12px',
+                              fontSize: '11px',
                               backgroundColor: c.push_status === 'sent' ? '#e8f5e8' : c.push_status === 'pending' ? '#fff3cd' : '#f8f9fa'
                             }}
                           >
@@ -1188,28 +1216,60 @@ export default function AdminPage() {
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginTop: '20px',
-                  gap: '10px'
+                  marginTop: '6px',
+                  gap: '1px'
                 }}>
                   <button
                     onClick={() => fetchConcerts(currentPage - 1)}
                     disabled={currentPage === 1 || concertsLoading}
                     style={{
-                      padding: '8px 16px',
+                      background: currentPage === 1 || concertsLoading ? '#f5f5f5' : '#f0f0f0',
                       border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      backgroundColor: currentPage === 1 || concertsLoading ? '#f5f5f5' : 'white',
-                      color: currentPage === 1 || concertsLoading ? '#999' : '#333',
-                      cursor: currentPage === 1 || concertsLoading ? 'not-allowed' : 'pointer'
+                      padding: '3px',
+                      margin: '0 1px',
+                      borderRadius: 2,
+                      cursor: currentPage === 1 || concertsLoading ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      height: '20px',
+                      lineHeight: '12px',
+                      minWidth: '20px'
                     }}
                   >
                     이전
                   </button>
                   
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
+                    if (pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => fetchConcerts(pageNum)}
+                        disabled={concertsLoading}
+                        style={{
+                          background: pageNum === currentPage ? '#D4AF37' : '#f0f0f0',
+                          color: pageNum === currentPage ? '#fff' : '#333',
+                          border: pageNum === currentPage ? '1px solid #D4AF37' : '1px solid #ddd',
+                          padding: '3px',
+                          margin: '0 1px',
+                          borderRadius: 2,
+                          cursor: concertsLoading ? 'not-allowed' : 'pointer',
+                          fontSize: 12,
+                          height: '20px',
+                          lineHeight: '12px',
+                          minWidth: '20px'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                  
                   <span style={{
-                    padding: '8px 16px',
-                    fontSize: '14px',
-                    color: '#666'
+                    fontSize: 12,
+                    color: '#666',
+                    margin: '0 2px'
                   }}>
                     {currentPage} / {totalPages} (총 {totalConcerts}개
                     {concertSearchTerm && (
@@ -1230,12 +1290,16 @@ export default function AdminPage() {
                     onClick={() => fetchConcerts(currentPage + 1)}
                     disabled={currentPage === totalPages || concertsLoading}
                     style={{
-                      padding: '8px 16px',
+                      background: currentPage === totalPages || concertsLoading ? '#f5f5f5' : '#f0f0f0',
                       border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      backgroundColor: currentPage === totalPages || concertsLoading ? '#f5f5f5' : 'white',
-                      color: currentPage === totalPages || concertsLoading ? '#999' : '#333',
-                      cursor: currentPage === totalPages || concertsLoading ? 'not-allowed' : 'pointer'
+                      padding: '3px',
+                      margin: '0 1px',
+                      borderRadius: 2,
+                      cursor: currentPage === totalPages || concertsLoading ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      height: '20px',
+                      lineHeight: '12px',
+                      minWidth: '20px'
                     }}
                   >
                     다음

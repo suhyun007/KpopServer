@@ -207,9 +207,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    
+    // created_at과 updated_at 필드를 현재 시간으로 설정
+    const insertData = {
+      ...body,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
     const { data, error } = await supabaseAdmin
       .from('concerts')
-      .insert(body)
+      .insert(insertData)
       .select('*')
       .single();
 
@@ -237,9 +245,16 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
+    
+    // updated_at 필드를 현재 시간으로 설정
+    const updateData = {
+      ...body,
+      updated_at: new Date().toISOString()
+    };
+    
     const { data, error } = await supabaseAdmin
       .from('concerts')
-      .update(body)
+      .update(updateData)
       .eq('id', id)
       .select('*')
       .single();
