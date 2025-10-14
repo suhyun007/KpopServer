@@ -65,6 +65,12 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   handler satisfies RouteHandlerConfig<"/api/admin/auth">
 }
 
+// Validate ../../src/app/api/ai-fantalk/route.ts
+{
+  const handler = {} as typeof import("../../src/app/api/ai-fantalk/route.js")
+  handler satisfies RouteHandlerConfig<"/api/ai-fantalk">
+}
+
 // Validate ../../src/app/api/artist-translations/route.ts
 {
   const handler = {} as typeof import("../../src/app/api/artist-translations/route.js")
