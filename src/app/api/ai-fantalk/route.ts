@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleAuth, JWT } from 'google-auth-library';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Service Account OAuth scope and model URL (using your working gemma model)
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/generative-language';
@@ -27,6 +29,7 @@ const STYLE_INSTRUCTION = `You are a friendly K-POP friend who always replies na
     Avoid mentioning that you are an AI or robot. Use emojis only when they feel natural and necessary.`;
 
 async function getAccessToken() {
+  // Priority 1: Environment variable (for Vercel/production)
   const inlineJson = process.env.GOOGLE_CHAT_SERVICE_ACCOUNT_JSON || process.env.SERVICE_ACCOUNT_JSON;
   if (inlineJson) {
     const { client_email, private_key } = JSON.parse(inlineJson as string);
@@ -36,11 +39,20 @@ async function getAccessToken() {
     return token as string;
   }
 
-  const auth = new GoogleAuth({ scopes: [GOOGLE_SCOPE] });
-  const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  if (!token || !token.token) throw new Error('Failed to acquire access token');
-  return token.token as string;
+  // Priority 2: Local file (for development only)
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const jsonPath = path.join(homeDir, 'Downloads', 'service-account.json');
+  
+  if (fs.existsSync(jsonPath)) {
+    const jsonContent = fs.readFileSync(jsonPath, 'utf-8');
+    const { client_email, private_key } = JSON.parse(jsonContent);
+    const client = new JWT({ email: client_email, key: private_key, scopes: [GOOGLE_SCOPE] });
+    const { token } = await client.getAccessToken();
+    if (!token) throw new Error('Failed to acquire access token');
+    return token as string;
+  }
+
+  throw new Error('Service account credentials not found. Set GOOGLE_CHAT_SERVICE_ACCOUNT_JSON env var or place service-account.json in ~/Downloads/ folder.');
 }
 
 export async function POST(req: NextRequest) {
@@ -51,7 +63,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
     }
 
+    console.log('[ai-fantalk POST] Message:', message);
     const accessToken = await getAccessToken();
+    console.log('[ai-fantalk POST] Access token acquired');
+    
     const res = await fetch(MODEL_URL, {
       method: 'POST',
       headers: {
@@ -72,15 +87,21 @@ export async function POST(req: NextRequest) {
       // 20s timeout via AbortController if needed (optional)
     });
 
+    console.log('[ai-fantalk POST] Gemini response status:', res.status);
+    
     if (!res.ok) {
       const text = await res.text();
+      console.error('[ai-fantalk POST] Gemini error:', text);
       return NextResponse.json({ error: text, upstreamStatus: res.status }, { status: res.status });
     }
 
     const data = await res.json();
     const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    console.log('[ai-fantalk POST] Success, response length:', text.length);
     return NextResponse.json({ text });
   } catch (e: any) {
+    console.error('[ai-fantalk POST] Exception:', e?.message);
+    console.error('[ai-fantalk POST] Stack:', e?.stack);
     return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
 }
